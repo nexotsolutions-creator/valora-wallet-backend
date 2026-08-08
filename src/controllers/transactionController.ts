@@ -1,7 +1,7 @@
 import type { Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../middlewares/authMiddleware.js";
 import type { Transaction } from "../models/transactionModel.js";
-import { executeDeposit, executeExchange, getUserTransactions, executeBuy, executeSell } from "../services/transactionService.js";
+import { executeDeposit, executeExchange, getUserTransactions, executeBuy, executeSell, getExchangeQuote } from "../services/transactionService.js";
 import type { GetTransactionsQuery } from "../schemas/transactionSchema.js";
 
 /**
@@ -47,19 +47,37 @@ export async function depositController(req: AuthenticatedRequest, res: Response
 }
 
 /**
+ * Controller to handle quote requests (preview exchange rate without executing).
+ */
+export async function quoteController(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+        const { fromCurrency, toCurrency, amount } = req.body;
+
+        const quote = await getExchangeQuote(fromCurrency, toCurrency, amount);
+
+        res.status(200).json({
+            success: true,
+            data: quote
+        });
+    } catch (error: unknown) {
+        next(error);
+    }
+}
+
+/**
  * Controller to handle exchange requests.
  */
 export async function exchangeController(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
         const userId = req.user?.userId;
-        const { fromCurrency, toCurrency, amount } = req.body;
+        const { fromCurrency, toCurrency, amount, userAcceptedRate } = req.body;
 
         if (!userId) {
             res.status(401).json({ success: false, error: "AUTH_ERROR", message: "Usuario no autorizado." });
             return;
         }
 
-        const transaction = await executeExchange(userId, fromCurrency, toCurrency, amount);
+        const transaction = await executeExchange(userId, fromCurrency, toCurrency, amount, userAcceptedRate);
 
         res.status(200).json({
             success: true,
@@ -112,7 +130,7 @@ export async function getTransactionsController(
 export async function buyController(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
         const userId = req.user?.userId;
-        const { fromCurrency, toCurrency, amount } = req.body;
+        const { fromCurrency, toCurrency, amount, userAcceptedRate } = req.body;
 
         if (!userId) {
             res.status(401).json({
@@ -123,7 +141,7 @@ export async function buyController(req: AuthenticatedRequest, res: Response, ne
             return;
         }
 
-        const transaction = await executeBuy(userId, fromCurrency, toCurrency, amount);
+        const transaction = await executeBuy(userId, fromCurrency, toCurrency, amount, userAcceptedRate);
 
         res.status(200).json({
             success: true,
@@ -140,7 +158,7 @@ export async function buyController(req: AuthenticatedRequest, res: Response, ne
 export async function sellController(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
         const userId = req.user?.userId;
-        const { fromCurrency, toCurrency, amount } = req.body;
+        const { fromCurrency, toCurrency, amount, userAcceptedRate } = req.body;
 
         if (!userId) {
             res.status(401).json({
@@ -151,7 +169,7 @@ export async function sellController(req: AuthenticatedRequest, res: Response, n
             return;
         }
 
-        const transaction = await executeSell(userId, fromCurrency, toCurrency, amount);
+        const transaction = await executeSell(userId, fromCurrency, toCurrency, amount, userAcceptedRate);
 
         res.status(200).json({
             success: true,
