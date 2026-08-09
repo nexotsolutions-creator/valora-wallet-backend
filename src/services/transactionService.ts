@@ -3,6 +3,7 @@ import { findWalletByUserId } from "../models/walletModel.js";
 import { updateUserBalance } from "../models/balanceModel.js";
 import { insertTransaction, findTransactionsByWalletId, countTransactionsByWalletId } from "../models/transactionModel.js";
 import { getExchangeRates } from "./exchangeRateService.js";
+import Decimal from "decimal.js";
 
 const MAX_SLIPPAGE = 0.05; // 5% de tolerancia de cambio de precio
 
@@ -148,7 +149,10 @@ async function executeConversion(
         throw Object.assign(new Error("Tasa de cambio no disponible para las monedas seleccionadas."), { status: 400, code: "RATE_NOT_AVAILABLE" });
     }
 
-    const realRate = rateTo / rateFrom;
+    const rateFromDec = new Decimal(rateFrom);
+    const rateToDec = new Decimal(rateTo);
+    const realRateDec = rateToDec.dividedBy(rateFromDec);
+    const realRate = realRateDec.toNumber();
     
     // Slippage tolerance check
     if (Math.abs(realRate - userAcceptedRate) / userAcceptedRate > MAX_SLIPPAGE) {
@@ -160,9 +164,9 @@ async function executeConversion(
         await client.query("BEGIN");
 
         // Mathematical logic for exchange
-        const amountInUsd = amount / rateFrom;
-        const targetAmount = amountInUsd * rateTo;
-        const exchangeRate = rateTo / rateFrom;
+        const amountInUsdDec = new Decimal(amount).dividedBy(rateFromDec);
+        const targetAmount = amountInUsdDec.times(rateToDec);
+        const exchangeRate = realRate;
 
         // Deduct from source currency (negative amount)
         await updateUserBalance(client, wallet.id, fromCurrency, -amount);
@@ -172,7 +176,7 @@ async function executeConversion(
 
         // Record the operation in the ledger
         const transaction = await insertTransaction(
-            client, wallet.id, type, fromCurrency, toCurrency, amount, targetAmount, exchangeRate, newTargetBalance.amount
+            client, wallet.id, type, fromCurrency, toCurrency, amount, targetAmount.toNumber(), exchangeRate, newTargetBalance.amount
         );
 
         await client.query("COMMIT");
@@ -221,7 +225,11 @@ export async function executeBuy(userId: string, currency: string, amount: numbe
         throw Object.assign(new Error("Tasa de cambio no disponible."), { status: 400, code: "RATE_NOT_AVAILABLE" });
     }
 
-    const realRate = rateFrom / rateTo; // Cuántos ARS por 1 unidad extranjera
+    const rateFromDec = new Decimal(rateFrom);
+    const rateToDec = new Decimal(rateTo);
+    const realRateDec = rateFromDec.dividedBy(rateToDec); // Cuántos ARS por 1 unidad extranjera
+    const realRate = realRateDec.toNumber();
+
     if (Math.abs(realRate - userAcceptedRate) / userAcceptedRate > MAX_SLIPPAGE) {
         throw Object.assign(new Error("La tasa de cambio ha variado significativamente. Vuelve a cotizar."), { status: 400, code: "SLIPPAGE_EXCEEDED" });
     }
@@ -270,7 +278,11 @@ export async function executeSell(userId: string, currency: string, amount: numb
         throw Object.assign(new Error("Tasa de cambio no disponible."), { status: 400, code: "RATE_NOT_AVAILABLE" });
     }
 
-    const realRate = rateTo / rateFrom; // Cuántos ARS por 1 unidad extranjera
+    const rateFromDec = new Decimal(rateFrom);
+    const rateToDec = new Decimal(rateTo);
+    const realRateDec = rateToDec.dividedBy(rateFromDec); // Cuántos ARS por 1 unidad extranjera
+    const realRate = realRateDec.toNumber();
+
     if (Math.abs(realRate - userAcceptedRate) / userAcceptedRate > MAX_SLIPPAGE) {
         throw Object.assign(new Error("La tasa de cambio ha variado significativamente. Vuelve a cotizar."), { status: 400, code: "SLIPPAGE_EXCEEDED" });
     }
@@ -279,7 +291,7 @@ export async function executeSell(userId: string, currency: string, amount: numb
     try {
         await client.query("BEGIN");
 
-        const targetAmount = amount * realRate; // Total en ARS a recibir
+        const targetAmount = new Decimal(amount).times(realRateDec); // Total en ARS a recibir
 
         // Restar moneda extranjera
         await updateUserBalance(client, wallet.id, currency, -amount);
@@ -288,7 +300,7 @@ export async function executeSell(userId: string, currency: string, amount: numb
         const newTargetBalance = await updateUserBalance(client, wallet.id, "ARS", targetAmount);
 
         const transaction = await insertTransaction(
-            client, wallet.id, "SELL", currency, "ARS", amount, targetAmount, realRate, newTargetBalance.amount
+            client, wallet.id, "SELL", currency, "ARS", amount, targetAmount.toNumber(), realRate, newTargetBalance.amount
         );
 
         await client.query("COMMIT");

@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import { query } from "../database/db";
 import { findWalletByUserId } from "./walletModel";
+import Decimal from "decimal.js";
 
 
 export interface Balance {
@@ -106,7 +107,7 @@ export async function updateUserBalance(
   client: PoolClient,
   walletId: string,
   currencyCode: string,
-  amountDelta: number
+  amountDelta: number | string | Decimal
 ): Promise<Balance> {
   // Bloqueamos la billetera para serializar todas las operaciones de saldo del mismo wallet.
   const walletLock = await client.query(
@@ -136,7 +137,8 @@ export async function updateUserBalance(
   );
 
   if (existingBalance.rows.length === 0) {
-    if (amountDelta < 0) {
+    const amountDeltaDec = new Decimal(amountDelta);
+    if (amountDeltaDec.isNegative()) {
       throw Object.assign(new Error("Saldo insuficiente para realizar la operación."), { status: 400, code: "INSUFFICIENT_FUNDS" });
     }
 
@@ -145,17 +147,17 @@ export async function updateUserBalance(
       VALUES ($1, $2, $3)
       RETURNING id, wallet_id, currency_code, amount, created_at, updated_at;
     `;
-    const result = await client.query(insertSql, [walletId, currencyCode, amountDelta.toFixed(8)]);
+    const result = await client.query(insertSql, [walletId, currencyCode, new Decimal(amountDelta).toFixed(8)]);
     if (result.rows.length === 0) {
       throw Object.assign(new Error("No se pudo actualizar el saldo en la base de datos."), { status: 500, code: "DB_UPDATE_ERROR" });
     }
     return result.rows[0];
   }
 
-  const currentAmount = parseFloat(existingBalance.rows[0].amount);
-  const newAmount = currentAmount + amountDelta;
+  const currentAmount = new Decimal(existingBalance.rows[0].amount);
+  const newAmount = currentAmount.plus(amountDelta);
 
-  if (newAmount < 0) {
+  if (newAmount.isNegative()) {
     throw Object.assign(new Error("Saldo insuficiente para realizar la operación."), { status: 400, code: "INSUFFICIENT_FUNDS" });
   }
 
