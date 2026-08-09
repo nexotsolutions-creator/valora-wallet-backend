@@ -2,6 +2,7 @@ import type { Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../middlewares/authMiddleware.js";
 import type { Transaction } from "../models/transactionModel.js";
 import { executeDeposit, executeExchange, getUserTransactions, executeBuy, executeSell, getExchangeQuote, getBuyQuote, getSellQuote } from "../services/transactionService.js";
+import { sendTransactionReceiptEmail } from "../services/notificationService.js";
 import type { GetTransactionsQuery } from "../schemas/transactionSchema.js";
 
 /**
@@ -115,6 +116,13 @@ export async function exchangeController(req: AuthenticatedRequest, res: Respons
 
         const transaction = await executeExchange(userId, fromCurrency, toCurrency, amount, userAcceptedRate);
 
+        const userEmail = req.user?.email;
+        if (userEmail) {
+            sendTransactionReceiptEmail(userEmail, transaction).catch((error) => {
+                console.error("Error enviando recibo por email (EXCHANGE):", error);
+            });
+        }
+
         res.status(200).json({
             success: true,
             data: mapTransactionToCamelCase(transaction)
@@ -180,6 +188,13 @@ export async function buyController(req: AuthenticatedRequest, res: Response, ne
         // Llamamos a executeBuy especializado (moneda destino, monto en destino)
         const transaction = await executeBuy(userId, currency, amount, userAcceptedRate);
 
+        const userEmail = req.user?.email;
+        if (userEmail) {
+            sendTransactionReceiptEmail(userEmail, transaction).catch((error) => {
+                console.error("Error enviando recibo por email (BUY):", error);
+            });
+        }
+
         res.status(200).json({
             success: true,
             data: mapTransactionToCamelCase(transaction)
@@ -208,6 +223,13 @@ export async function sellController(req: AuthenticatedRequest, res: Response, n
 
         // Llamamos a executeSell especializado (moneda origen, monto a liquidar)
         const transaction = await executeSell(userId, currency, amount, userAcceptedRate);
+
+        const userEmail = req.user?.email;
+        if (userEmail) {
+            sendTransactionReceiptEmail(userEmail, transaction).catch((error) => {
+                console.error("Error enviando recibo por email (SELL):", error);
+            });
+        }
 
         res.status(200).json({
             success: true,
