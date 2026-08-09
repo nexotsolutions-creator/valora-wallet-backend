@@ -1,7 +1,7 @@
 import type { Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../middlewares/authMiddleware.js";
 import type { Transaction } from "../models/transactionModel.js";
-import { executeDeposit, executeExchange, getUserTransactions, executeBuy, executeSell, getExchangeQuote } from "../services/transactionService.js";
+import { executeDeposit, executeExchange, getUserTransactions, executeBuy, executeSell, getExchangeQuote, getBuyQuote, getSellQuote } from "../services/transactionService.js";
 import type { GetTransactionsQuery } from "../schemas/transactionSchema.js";
 
 /**
@@ -47,13 +47,49 @@ export async function depositController(req: AuthenticatedRequest, res: Response
 }
 
 /**
- * Controller to handle quote requests (preview exchange rate without executing).
+ * Controller to handle quote requests for EXCHANGES.
  */
-export async function quoteController(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+export async function quoteExchangeController(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
         const { fromCurrency, toCurrency, amount } = req.body;
 
         const quote = await getExchangeQuote(fromCurrency, toCurrency, amount);
+
+        res.status(200).json({
+            success: true,
+            data: quote
+        });
+    } catch (error: unknown) {
+        next(error);
+    }
+}
+
+/**
+ * Controller to handle quote requests for BUYS.
+ */
+export async function quoteBuyController(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+        const { currency, amount } = req.body;
+
+        const quote = await getBuyQuote(currency, amount);
+
+        res.status(200).json({
+            success: true,
+            data: quote
+        });
+    } catch (error: unknown) {
+        next(error);
+    }
+}
+
+/**
+ * Controller to handle quote requests for SELLS.
+ */
+export async function quoteSellController(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+        const { currency, amount } = req.body;
+
+        const quote = await getSellQuote(currency, amount);
 
         res.status(200).json({
             success: true,
@@ -130,7 +166,7 @@ export async function getTransactionsController(
 export async function buyController(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
         const userId = req.user?.userId;
-        const { fromCurrency, toCurrency, amount, userAcceptedRate } = req.body;
+        const { currency, amount, userAcceptedRate } = req.body;
 
         if (!userId) {
             res.status(401).json({
@@ -141,7 +177,8 @@ export async function buyController(req: AuthenticatedRequest, res: Response, ne
             return;
         }
 
-        const transaction = await executeBuy(userId, fromCurrency, toCurrency, amount, userAcceptedRate);
+        // Llamamos a executeBuy especializado (moneda destino, monto en destino)
+        const transaction = await executeBuy(userId, currency, amount, userAcceptedRate);
 
         res.status(200).json({
             success: true,
@@ -158,7 +195,7 @@ export async function buyController(req: AuthenticatedRequest, res: Response, ne
 export async function sellController(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
         const userId = req.user?.userId;
-        const { fromCurrency, toCurrency, amount, userAcceptedRate } = req.body;
+        const { currency, amount, userAcceptedRate } = req.body;
 
         if (!userId) {
             res.status(401).json({
@@ -169,7 +206,8 @@ export async function sellController(req: AuthenticatedRequest, res: Response, n
             return;
         }
 
-        const transaction = await executeSell(userId, fromCurrency, toCurrency, amount, userAcceptedRate);
+        // Llamamos a executeSell especializado (moneda origen, monto a liquidar)
+        const transaction = await executeSell(userId, currency, amount, userAcceptedRate);
 
         res.status(200).json({
             success: true,

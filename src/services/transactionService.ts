@@ -39,11 +39,10 @@ export async function executeDeposit(userId: string, currency: string, amount: n
 }
 
 /**
- * Obtiene una cotización en tiempo real sin abrir conexiones a la base de datos.
+ * Obtiene una cotización para intercambiar monedas.
  * @param fromCurrency Moneda de origen
  * @param toCurrency Moneda de destino
- * @param amount Monto a convertir
- * @returns Tasa de cambio y monto a recibir
+ * @param amount Monto a gastar
  */
 export async function getExchangeQuote(fromCurrency: string, toCurrency: string, amount: number) {
     if (amount <= 0) throw Object.assign(new Error("El monto a cotizar debe ser mayor a cero."), { status: 400, code: "INVALID_AMOUNT" });
@@ -57,13 +56,67 @@ export async function getExchangeQuote(fromCurrency: string, toCurrency: string,
         throw Object.assign(new Error("Tasa de cambio no disponible para las monedas seleccionadas."), { status: 400, code: "RATE_NOT_AVAILABLE" });
     }
 
-    const exchangeRate = rateTo / rateFrom;
     const amountInUsd = amount / rateFrom;
     const targetAmount = amountInUsd * rateTo;
+    const rateFromTo = rateTo / rateFrom;
+    const rateToFrom = rateFrom / rateTo;
 
     return {
-        exchangeRate,
-        targetAmount
+        targetAmount,
+        rateFromTo,
+        rateToFrom
+    };
+}
+
+/**
+ * Obtiene una cotización para comprar monedas extranjeras pagando externamente (referencia ARS).
+ * @param currency Moneda extranjera a comprar
+ * @param amount Monto de moneda extranjera que se desea comprar
+ */
+export async function getBuyQuote(currency: string, amount: number) {
+    if (amount <= 0) throw Object.assign(new Error("El monto a cotizar debe ser mayor a cero."), { status: 400, code: "INVALID_AMOUNT" });
+    if (currency === "ARS") throw Object.assign(new Error("No puedes comprar ARS en este endpoint."), { status: 400, code: "SAME_CURRENCY" });
+
+    const rates = await getExchangeRates();
+    const rateFrom = rates["ARS"];
+    const rateTo = rates[currency];
+
+    if (!rateFrom || !rateTo) {
+        throw Object.assign(new Error("Tasa de cambio no disponible."), { status: 400, code: "RATE_NOT_AVAILABLE" });
+    }
+
+    const exchangeRate = rateFrom / rateTo;
+    const totalCostInARS = amount * exchangeRate;
+
+    return {
+        totalCostInARS,
+        exchangeRate
+    };
+}
+
+/**
+ * Obtiene una cotización para liquidar monedas extranjeras a ARS.
+ * @param currency Moneda extranjera a vender
+ * @param amount Monto de moneda extranjera que se desea vender
+ */
+export async function getSellQuote(currency: string, amount: number) {
+    if (amount <= 0) throw Object.assign(new Error("El monto a cotizar debe ser mayor a cero."), { status: 400, code: "INVALID_AMOUNT" });
+    if (currency === "ARS") throw Object.assign(new Error("No puedes vender ARS en este endpoint."), { status: 400, code: "SAME_CURRENCY" });
+
+    const rates = await getExchangeRates();
+    const rateFrom = rates[currency];
+    const rateTo = rates["ARS"];
+
+    if (!rateFrom || !rateTo) {
+        throw Object.assign(new Error("Tasa de cambio no disponible."), { status: 400, code: "RATE_NOT_AVAILABLE" });
+    }
+
+    const exchangeRate = rateTo / rateFrom;
+    const totalReturnInARS = amount * exchangeRate;
+
+    return {
+        totalReturnInARS,
+        exchangeRate
     };
 }
 
@@ -146,29 +199,106 @@ export async function executeExchange(userId: string, fromCurrency: string, toCu
 }
 
 /**
- * Executes a currency buy ensuring sufficient funds and atomic updates.
- * @param userId - The user's UUID
- * @param fromCurrency - Source currency (currency spent)
- * @param toCurrency - Destination currency (currency bought)
- * @param amount - Amount to sell/spend
- * @param userAcceptedRate - Exchange rate accepted by user for slippage protection
- * @returns The recorded transaction
+ * Ejecuta una compra de moneda con tarjeta externa.
+ * No se descuenta saldo de la billetera local (ARS) ya que se fondea externamente.
+ * @param userId - El UUID del usuario
+ * @param currency - La moneda que se desea comprar (USD o EUR)
+ * @param amount - Cantidad de moneda a comprar
+ * @param userAcceptedRate - Tasa aceptada por el usuario (costo de 1 currency en ARS)
  */
-export async function executeBuy(userId: string, fromCurrency: string, toCurrency: string, amount: number, userAcceptedRate: number) {
-    return executeConversion(userId, "BUY", fromCurrency, toCurrency, amount, userAcceptedRate);
+export async function executeBuy(userId: string, currency: string, amount: number, userAcceptedRate: number) {
+    if (amount <= 0) throw Object.assign(new Error("El monto a comprar debe ser mayor a cero."), { status: 400, code: "INVALID_AMOUNT" });
+    if (currency === "ARS") throw Object.assign(new Error("No puedes comprar ARS con ARS."), { status: 400, code: "SAME_CURRENCY" });
+
+    const wallet = await findWalletByUserId(userId);
+    if (!wallet) throw Object.assign(new Error("Billetera no encontrada."), { status: 404, code: "WALLET_NOT_FOUND" });
+
+    const rates = await getExchangeRates();
+    const rateFrom = rates["ARS"];
+    const rateTo = rates[currency];
+
+    if (!rateFrom || !rateTo) {
+        throw Object.assign(new Error("Tasa de cambio no disponible."), { status: 400, code: "RATE_NOT_AVAILABLE" });
+    }
+
+    const realRate = rateFrom / rateTo; // Cuántos ARS por 1 unidad extranjera
+    if (Math.abs(realRate - userAcceptedRate) / userAcceptedRate > MAX_SLIPPAGE) {
+        throw Object.assign(new Error("La tasa de cambio ha variado significativamente. Vuelve a cotizar."), { status: 400, code: "SLIPPAGE_EXCEEDED" });
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+
+        // Sumar moneda extranjera comprada
+        const newTargetBalance = await updateUserBalance(client, wallet.id, currency, amount);
+
+        // Guardamos source_amount como null, ya que el cobro es externo
+        const transaction = await insertTransaction(
+            client, wallet.id, "BUY", null, currency, null, amount, realRate, newTargetBalance.amount
+        );
+
+        await client.query("COMMIT");
+        return transaction;
+    } catch (error: unknown) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
 }
 
 /**
- * Executes a currency sell ensuring sufficient funds and atomic updates.
- * @param userId - The user's UUID
- * @param fromCurrency - Source currency (currency sold)
- * @param toCurrency - Destination currency (currency obtained)
- * @param amount - Amount to sell
- * @param userAcceptedRate - Exchange rate accepted by user for slippage protection
- * @returns The recorded transaction
+ * Ejecuta una venta de moneda para liquidarla en ARS.
+ * @param userId - El UUID del usuario
+ * @param currency - La moneda que se desea vender (USD o EUR)
+ * @param amount - Cantidad de moneda a vender
+ * @param userAcceptedRate - Tasa aceptada por el usuario (cuántos ARS le dan por 1 currency)
  */
-export async function executeSell(userId: string, fromCurrency: string, toCurrency: string, amount: number, userAcceptedRate: number) {
-    return executeConversion(userId, "SELL", fromCurrency, toCurrency, amount, userAcceptedRate);
+export async function executeSell(userId: string, currency: string, amount: number, userAcceptedRate: number) {
+    if (amount <= 0) throw Object.assign(new Error("El monto a vender debe ser mayor a cero."), { status: 400, code: "INVALID_AMOUNT" });
+    if (currency === "ARS") throw Object.assign(new Error("No puedes vender ARS a ARS."), { status: 400, code: "SAME_CURRENCY" });
+
+    const wallet = await findWalletByUserId(userId);
+    if (!wallet) throw Object.assign(new Error("Billetera no encontrada."), { status: 404, code: "WALLET_NOT_FOUND" });
+
+    const rates = await getExchangeRates();
+    const rateFrom = rates[currency];
+    const rateTo = rates["ARS"];
+
+    if (!rateFrom || !rateTo) {
+        throw Object.assign(new Error("Tasa de cambio no disponible."), { status: 400, code: "RATE_NOT_AVAILABLE" });
+    }
+
+    const realRate = rateTo / rateFrom; // Cuántos ARS por 1 unidad extranjera
+    if (Math.abs(realRate - userAcceptedRate) / userAcceptedRate > MAX_SLIPPAGE) {
+        throw Object.assign(new Error("La tasa de cambio ha variado significativamente. Vuelve a cotizar."), { status: 400, code: "SLIPPAGE_EXCEEDED" });
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+
+        const targetAmount = amount * realRate; // Total en ARS a recibir
+
+        // Restar moneda extranjera
+        await updateUserBalance(client, wallet.id, currency, -amount);
+        
+        // Sumar ARS
+        const newTargetBalance = await updateUserBalance(client, wallet.id, "ARS", targetAmount);
+
+        const transaction = await insertTransaction(
+            client, wallet.id, "SELL", currency, "ARS", amount, targetAmount, realRate, newTargetBalance.amount
+        );
+
+        await client.query("COMMIT");
+        return transaction;
+    } catch (error: unknown) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
 }
 
 /**
