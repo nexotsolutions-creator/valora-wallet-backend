@@ -2,8 +2,8 @@ import request from "supertest";
 import { describe, expect, it, vi, beforeAll, afterAll, afterEach } from "vitest";
 import { query } from "../database/db.js";
 
-// Mockeamos el servicio de Gemini para evitar llamadas reales a la API
-vi.mock("../services/geminiService.js", () => {
+// Mockeamos el servicio de IA para evitar llamadas reales a la API
+vi.mock("../services/aiService.js", () => {
     return {
         getFinancialAdvice: vi.fn().mockResolvedValue("Mocked AI response")
     };
@@ -11,7 +11,7 @@ vi.mock("../services/geminiService.js", () => {
 
 describe("Pruebas de integración del Chatbot", () => {
     let app: typeof import("../app.js").app;
-    let getFinancialAdvice: typeof import("../services/geminiService.js").getFinancialAdvice;
+    let getFinancialAdvice: typeof import("../services/aiService.js").getFinancialAdvice;
     let token = "";
     const testUser = {
         email: "chatbot_test@valora.com",
@@ -24,9 +24,9 @@ describe("Pruebas de integración del Chatbot", () => {
 
     beforeAll(async () => {
         const appModule = await import("../app.js");
-        const geminiModule = await import("../services/geminiService.js");
+        const aiModule = await import("../services/aiService.js");
         app = appModule.app;
-        getFinancialAdvice = geminiModule.getFinancialAdvice;
+        getFinancialAdvice = aiModule.getFinancialAdvice;
 
         await query("DELETE FROM users WHERE email = $1", [testUser.email]);
 
@@ -90,7 +90,9 @@ describe("Pruebas de integración del Chatbot", () => {
                     USD: expect.any(Number),
                     EUR: expect.any(Number),
                     ARS: expect.any(Number)
-                })
+                }),
+                expect.any(Object), // rates
+                expect.any(Array)   // history
             );
         });
     });
