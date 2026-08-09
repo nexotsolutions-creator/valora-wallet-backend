@@ -63,3 +63,31 @@ CREATE INDEX IF NOT EXISTS idx_transactions_wallet_id ON transactions(wallet_id)
 -- Actualizaciones de Esquema (Migraciones de compatibilidad)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_birth DATE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20);
+
+-- Soporte para P2P (Escrow y Contraparte)
+ALTER TABLE balances ADD COLUMN IF NOT EXISTS locked_amount NUMERIC(18,8) NOT NULL DEFAULT 0.00000000 CHECK (locked_amount >= 0);
+
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS counterparty_id UUID REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS counterparty_name VARCHAR(100);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS counterparty_email VARCHAR(255);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS counterparty_wallet UUID REFERENCES wallets(id) ON DELETE SET NULL;
+
+-- Tabla de Solicitudes P2P (Marketplace y Negociación)
+CREATE TABLE IF NOT EXISTS p2p_requests (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    creator_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    acceptor_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    currency_from VARCHAR(10) NOT NULL,
+    currency_to VARCHAR(10) NOT NULL,
+    type VARCHAR(4) NOT NULL CHECK (type IN ('BUY', 'SELL')),
+    amount NUMERIC(18,8) NOT NULL CHECK (amount > 0),
+    exchange_rate NUMERIC(18,8) NOT NULL CHECK (exchange_rate > 0),
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'NEGOTIATING', 'LOCKED', 'COMPLETED', 'FAILED', 'DROPPED')),
+    creator_confirmed BOOLEAN DEFAULT false,
+    acceptor_confirmed BOOLEAN DEFAULT false,
+    creator_data JSONB,
+    acceptor_data JSONB,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+);

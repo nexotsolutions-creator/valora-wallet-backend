@@ -41,3 +41,47 @@ export async function initializeAndGetBalances(userId: string) {
 
     return await findBalancesByWalletId(wallet.id);
 }
+
+/**
+ * Locks a specific amount of funds in the user's wallet for a P2P request.
+ */
+export async function executeLockFunds(userId: string, currencyCode: string, amount: string | number) {
+    const wallet = await findWalletByUserId(userId);
+    if (!wallet) throw new Error("Billetera no encontrada");
+    
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+        const { lockFunds } = await import("../models/balanceModel.js");
+        const balance = await lockFunds(client, wallet.id, currencyCode, amount);
+        await client.query("COMMIT");
+        return balance;
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+/**
+ * Unlocks previously held funds from a P2P request.
+ */
+export async function executeUnlockFunds(userId: string, currencyCode: string, amount: string | number) {
+    const wallet = await findWalletByUserId(userId);
+    if (!wallet) throw new Error("Billetera no encontrada");
+    
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+        const { unlockFunds } = await import("../models/balanceModel.js");
+        const balance = await unlockFunds(client, wallet.id, currencyCode, amount);
+        await client.query("COMMIT");
+        return balance;
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}

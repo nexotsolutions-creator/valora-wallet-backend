@@ -9,6 +9,7 @@ export interface Balance {
   wallet_id: string;
   currency_code: string;
   amount: string; // Since NUMERIC is returned as a string from node-pg to preserve precision
+  locked_amount: string;
   created_at: string | Date;
   updated_at: string | Date;
 }
@@ -28,11 +29,11 @@ export async function createOrUpdateBalance(
   client?: PoolClient
 ): Promise<Balance> {
   const sql = `
-    INSERT INTO balances (wallet_id, currency_code, amount)
-    VALUES ($1, $2, $3)
+    INSERT INTO balances (wallet_id, currency_code, amount, locked_amount)
+    VALUES ($1, $2, $3, 0)
     ON CONFLICT (wallet_id, currency_code)
     DO UPDATE SET amount = EXCLUDED.amount, updated_at = CURRENT_TIMESTAMP
-    RETURNING id, wallet_id, currency_code, amount, created_at, updated_at
+    RETURNING id, wallet_id, currency_code, amount, locked_amount, created_at, updated_at
   `;
   const result = client
     ? await client.query(sql, [walletId, currencyCode, amount.toString()])
@@ -50,7 +51,7 @@ export async function createOrUpdateBalance(
  */
 export async function findBalancesByWalletId(walletId: string): Promise<Balance[]> {
   const sql = `
-    SELECT id, wallet_id, currency_code, amount, created_at, updated_at
+    SELECT id, wallet_id, currency_code, amount, locked_amount, created_at, updated_at
     FROM balances
     WHERE wallet_id = $1
   `;
@@ -70,7 +71,7 @@ export async function findBalanceByWalletAndCurrency(
   client?: PoolClient
 ): Promise<Balance | null> {
   const sql = `
-    SELECT id, wallet_id, currency_code, amount, created_at, updated_at
+    SELECT id, wallet_id, currency_code, amount, locked_amount, created_at, updated_at
     FROM balances
     WHERE wallet_id = $1 AND currency_code = $2
   `;
@@ -165,11 +166,55 @@ export async function updateUserBalance(
     UPDATE balances
     SET amount = $3, updated_at = CURRENT_TIMESTAMP
     WHERE wallet_id = $1 AND currency_code = $2
-    RETURNING id, wallet_id, currency_code, amount, created_at, updated_at;
+    RETURNING id, wallet_id, currency_code, amount, locked_amount, created_at, updated_at;
   `;
   const result = await client.query(updateSql, [walletId, currencyCode, newAmount.toFixed(8)]);
   if (result.rows.length === 0) {
     throw Object.assign(new Error("No se pudo actualizar el saldo en la base de datos."), { status: 500, code: "DB_UPDATE_ERROR" });
+  }
+  return result.rows[0];
+}
+
+/**
+ * Locks funds by deducting from amount and adding to locked_amount
+ */
+export async function lockFunds(
+  client: PoolClient,
+  walletId: string,
+  currencyCode: string,
+  amountToLock: string | number
+): Promise<Balance> {
+  const sql = `
+    UPDATE balances
+    SET amount = amount - $3, locked_amount = locked_amount + $3, updated_at = CURRENT_TIMESTAMP
+    WHERE wallet_id = $1 AND currency_code = $2 AND amount >= $3
+    RETURNING id, wallet_id, currency_code, amount, locked_amount, created_at, updated_at
+  `;
+  const result = await client.query(sql, [walletId, currencyCode, amountToLock.toString()]);
+  if (result.rows.length === 0) {
+    throw Object.assign(new Error("Fondos insuficientes para retener o billetera no encontrada."), { status: 400, code: "INSUFFICIENT_FUNDS" });
+  }
+  return result.rows[0];
+}
+
+/**
+ * Unlocks funds by deducting from locked_amount and adding to amount
+ */
+export async function unlockFunds(
+  client: PoolClient,
+  walletId: string,
+  currencyCode: string,
+  amountToUnlock: string | number
+): Promise<Balance> {
+  const sql = `
+    UPDATE balances
+    SET amount = amount + $3, locked_amount = locked_amount - $3, updated_at = CURRENT_TIMESTAMP
+    WHERE wallet_id = $1 AND currency_code = $2 AND locked_amount >= $3
+    RETURNING id, wallet_id, currency_code, amount, locked_amount, created_at, updated_at
+  `;
+  const result = await client.query(sql, [walletId, currencyCode, amountToUnlock.toString()]);
+  if (result.rows.length === 0) {
+    throw Object.assign(new Error("Fondos retenidos insuficientes o billetera no encontrada."), { status: 400, code: "INVALID_UNLOCK" });
   }
   return result.rows[0];
 }
