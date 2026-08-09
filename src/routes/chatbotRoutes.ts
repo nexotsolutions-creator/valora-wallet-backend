@@ -11,6 +11,6 @@ export const chatbotRouter = Router();
 chatbotRouter.post(
     "/message",
     authMiddleware,
-    validateSchema(chatbotMessageSchema, { errorCode: "VALIDATION_ERROR", includeIssues: false }),
+    validateSchema(chatbotMessageSchema, { errorCode: "VALIDATION_ERROR", includeIssues: true }),
     chatController
 );

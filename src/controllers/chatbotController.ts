@@ -1,7 +1,8 @@
 import type { Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../middlewares/authMiddleware.js";
 import { initializeAndGetBalances } from "../services/balanceService.js";
-import { getFinancialAdvice } from "../services/geminiService.js";
+import { getFinancialAdvice } from "../services/aiService.js";
+import { getExchangeRates } from "../services/exchangeRateService.js";
 
 /**
  * Controlador para manejar las consultas al asistente financiero con IA.
@@ -13,7 +14,7 @@ export async function chatController(
 ): Promise<void> {
     try {
         const userId = req.user?.userId;
-        const { message } = req.body;
+        const { message, history = [] } = req.body;
 
         // Validación de seguridad básica
         if (!userId) {
@@ -21,10 +22,9 @@ export async function chatController(
             return;
         }
 
-
-
-        // 1. Inyección Contextual: Obtenemos los saldos reales del usuario
+        // 1. Inyección Contextual: Obtenemos los saldos y cotizaciones reales
         const balances = await initializeAndGetBalances(userId);
+        const rates = await getExchangeRates(); // Sin forceFresh, respeta la caché inteligente
 
         // Formateamos los saldos a un objeto clave-valor simple para la IA (ej: { USD: 100, ARS: 50000 })
         const formattedBalances = balances.reduce((acc, b) => {
@@ -32,8 +32,23 @@ export async function chatController(
             return acc;
         }, {} as Record<string, number>);
 
-        // 2. Consulta a Gemini pasando el mensaje y el contexto financiero
-        const aiResponse = await getFinancialAdvice(message, formattedBalances);
+        // 2. Consulta a Groq con Timeout de 24s
+        const aiPromise = getFinancialAdvice(message, formattedBalances, rates, history);
+        
+        let timeoutId: NodeJS.Timeout;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => {
+                const error = Object.assign(new Error("El asistente está tardando demasiado en responder."), {
+                    status: 504,
+                    code: "TIMEOUT_ERROR"
+                });
+                reject(error);
+            }, 24000);
+        });
+
+        const aiResponse = await Promise.race([aiPromise, timeoutPromise]).finally(() => {
+            clearTimeout(timeoutId);
+        });
 
         // 3. Respuesta en formato estandarizado (camelCase)
         res.status(200).json({
