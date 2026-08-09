@@ -50,17 +50,17 @@ export async function getExchangeQuote(fromCurrency: string, toCurrency: string,
     if (fromCurrency === toCurrency) throw Object.assign(new Error("Las monedas de origen y destino no pueden ser iguales."), { status: 400, code: "SAME_CURRENCY" });
 
     const rates = await getExchangeRates();
-    const rateFrom = rates[fromCurrency];
-    const rateTo = rates[toCurrency];
-
-    if (!rateFrom || !rateTo) {
+    const pairString = `${fromCurrency}_${toCurrency}`;
+    const reversePairString = `${toCurrency}_${fromCurrency}`;
+    const rateData = rates[pairString];
+    
+    if (!rateData) {
         throw Object.assign(new Error("Tasa de cambio no disponible para las monedas seleccionadas."), { status: 400, code: "RATE_NOT_AVAILABLE" });
     }
 
-    const amountInUsd = amount / rateFrom;
-    const targetAmount = amountInUsd * rateTo;
-    const rateFromTo = rateTo / rateFrom;
-    const rateToFrom = rateFrom / rateTo;
+    const rateFromTo = rateData.value;
+    const rateToFrom = rates[reversePairString]?.value || (1 / rateFromTo);
+    const targetAmount = amount * rateFromTo;
 
     return {
         targetAmount,
@@ -79,14 +79,14 @@ export async function getBuyQuote(currency: string, amount: number) {
     if (currency === "ARS") throw Object.assign(new Error("No puedes comprar ARS en este endpoint."), { status: 400, code: "SAME_CURRENCY" });
 
     const rates = await getExchangeRates();
-    const rateFrom = rates["ARS"];
-    const rateTo = rates[currency];
+    const pairString = `${currency}_ARS`;
+    const rateData = rates[pairString];
 
-    if (!rateFrom || !rateTo) {
+    if (!rateData) {
         throw Object.assign(new Error("Tasa de cambio no disponible."), { status: 400, code: "RATE_NOT_AVAILABLE" });
     }
 
-    const exchangeRate = rateFrom / rateTo;
+    const exchangeRate = rateData.value;
     const totalCostInARS = amount * exchangeRate;
 
     return {
@@ -105,14 +105,14 @@ export async function getSellQuote(currency: string, amount: number) {
     if (currency === "ARS") throw Object.assign(new Error("No puedes vender ARS en este endpoint."), { status: 400, code: "SAME_CURRENCY" });
 
     const rates = await getExchangeRates();
-    const rateFrom = rates[currency];
-    const rateTo = rates["ARS"];
+    const pairString = `${currency}_ARS`;
+    const rateData = rates[pairString];
 
-    if (!rateFrom || !rateTo) {
+    if (!rateData) {
         throw Object.assign(new Error("Tasa de cambio no disponible."), { status: 400, code: "RATE_NOT_AVAILABLE" });
     }
 
-    const exchangeRate = rateTo / rateFrom;
+    const exchangeRate = rateData.value;
     const totalReturnInARS = amount * exchangeRate;
 
     return {
@@ -142,17 +142,14 @@ async function executeConversion(
 
     // Fetch exchange rates from Day 1 service BEFORE acquiring DB connection
     const rates = await getExchangeRates();
-    const rateFrom = rates[fromCurrency];
-    const rateTo = rates[toCurrency];
+    const pairString = `${fromCurrency}_${toCurrency}`;
+    const rateData = rates[pairString];
 
-    if (!rateFrom || !rateTo) {
+    if (!rateData) {
         throw Object.assign(new Error("Tasa de cambio no disponible para las monedas seleccionadas."), { status: 400, code: "RATE_NOT_AVAILABLE" });
     }
 
-    const rateFromDec = new Decimal(rateFrom);
-    const rateToDec = new Decimal(rateTo);
-    const realRateDec = rateToDec.dividedBy(rateFromDec);
-    const realRate = realRateDec.toNumber();
+    const realRate = rateData.value;
     
     // Slippage tolerance check
     if (Math.abs(realRate - userAcceptedRate) / userAcceptedRate > MAX_SLIPPAGE) {
@@ -164,8 +161,8 @@ async function executeConversion(
         await client.query("BEGIN");
 
         // Mathematical logic for exchange
-        const amountInUsdDec = new Decimal(amount).dividedBy(rateFromDec);
-        const targetAmount = amountInUsdDec.times(rateToDec);
+        const exchangeRateDec = new Decimal(realRate);
+        const targetAmount = new Decimal(amount).times(exchangeRateDec);
         const exchangeRate = realRate;
 
         // Deduct from source currency (negative amount)
@@ -218,17 +215,14 @@ export async function executeBuy(userId: string, currency: string, amount: numbe
     if (!wallet) throw Object.assign(new Error("Billetera no encontrada."), { status: 404, code: "WALLET_NOT_FOUND" });
 
     const rates = await getExchangeRates();
-    const rateFrom = rates["ARS"];
-    const rateTo = rates[currency];
+    const pairString = `${currency}_ARS`;
+    const rateData = rates[pairString];
 
-    if (!rateFrom || !rateTo) {
+    if (!rateData) {
         throw Object.assign(new Error("Tasa de cambio no disponible."), { status: 400, code: "RATE_NOT_AVAILABLE" });
     }
 
-    const rateFromDec = new Decimal(rateFrom);
-    const rateToDec = new Decimal(rateTo);
-    const realRateDec = rateFromDec.dividedBy(rateToDec); // Cuántos ARS por 1 unidad extranjera
-    const realRate = realRateDec.toNumber();
+    const realRate = rateData.value;
 
     if (Math.abs(realRate - userAcceptedRate) / userAcceptedRate > MAX_SLIPPAGE) {
         throw Object.assign(new Error("La tasa de cambio ha variado significativamente. Vuelve a cotizar."), { status: 400, code: "SLIPPAGE_EXCEEDED" });
@@ -271,17 +265,15 @@ export async function executeSell(userId: string, currency: string, amount: numb
     if (!wallet) throw Object.assign(new Error("Billetera no encontrada."), { status: 404, code: "WALLET_NOT_FOUND" });
 
     const rates = await getExchangeRates();
-    const rateFrom = rates[currency];
-    const rateTo = rates["ARS"];
+    const pairString = `${currency}_ARS`;
+    const rateData = rates[pairString];
 
-    if (!rateFrom || !rateTo) {
+    if (!rateData) {
         throw Object.assign(new Error("Tasa de cambio no disponible."), { status: 400, code: "RATE_NOT_AVAILABLE" });
     }
 
-    const rateFromDec = new Decimal(rateFrom);
-    const rateToDec = new Decimal(rateTo);
-    const realRateDec = rateToDec.dividedBy(rateFromDec); // Cuántos ARS por 1 unidad extranjera
-    const realRate = realRateDec.toNumber();
+    const realRate = rateData.value;
+    const realRateDec = new Decimal(realRate);
 
     if (Math.abs(realRate - userAcceptedRate) / userAcceptedRate > MAX_SLIPPAGE) {
         throw Object.assign(new Error("La tasa de cambio ha variado significativamente. Vuelve a cotizar."), { status: 400, code: "SLIPPAGE_EXCEEDED" });
