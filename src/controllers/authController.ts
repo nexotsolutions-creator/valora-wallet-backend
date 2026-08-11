@@ -7,6 +7,7 @@ import {
   createUser,
   findUserByEmail,
   findUserById,
+  updateUserProfile,
   setPasswordResetToken,
   resetPasswordWithValidToken,
   type User,
@@ -16,10 +17,14 @@ import { createOrUpdateBalance, findBalancesByWalletId } from "../models/balance
 import type { AuthenticatedRequest } from "../middlewares/authMiddleware.js";
 import { pool } from "../database/db.js";
 import { enviarEmailConfirmacion } from "../services/sesService.js";
+import { validarCelular } from "../utils/phoneValidation.js";
 
 const PASSWORD_RESET_TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutos
 const PASSWORD_RESET_GENERIC_MESSAGE =
   "Si el correo está registrado, vas a recibir instrucciones para restablecer tu contraseña.";
+const SUPPORT_EMAIL = "nexot.solutions@gmail.com";
+const DUPLICATE_FIELD_GENERIC_MESSAGE =
+  `No pudimos guardar esos datos. Si creés que se trata de un error, escribinos a ${SUPPORT_EMAIL}.`;
 
 export interface UserResponse {
   id: string;
@@ -30,6 +35,7 @@ export interface UserResponse {
   phone?: string | null;
   country?: string;
   du?: string | null;
+  profileComplete?: boolean;
 }
 
 function formatDate(dateInput: Date | string | null | undefined): string | null {
@@ -68,6 +74,10 @@ export function toUserResponse(user: User, includePII = true): UserResponse {
     response.phone = user.phone || null;
     response.country = user.country;
     response.du = user.du || null;
+    // Le indica al frontend cuándo mostrar el paso de "completar perfil" (ej. tras un
+    // alta por Google, que arranca sin celular ni DU) — ver requireCompleteProfile.ts,
+    // que es quien realmente bloquea las operaciones de billetera del lado del backend.
+    response.profileComplete = Boolean(user.phone) && Boolean(user.du);
   }
 
   return response;
@@ -110,12 +120,24 @@ export async function registerController(
       return;
     }
 
+    // El schema de Zod ya validó que sea un celular real vía validarCelular; acá lo volvemos
+    // a llamar para obtener el valor normalizado en E.164 y nunca persistir el string crudo.
+    const celular = validarCelular(phone, country);
+    if (!celular.e164) {
+      res.status(400).json({
+        success: false,
+        error: "VALIDATION_ERROR",
+        message: "El número de celular provisto no es válido."
+      });
+      return;
+    }
+
     const passwordHash = await bcrypt.hash(password, 10);
     const client = await pool.connect();
 
     try {
       await client.query("BEGIN");
-      const user = await createUser(email, passwordHash, firstName, lastName, dateOfBirth, phone, country, du, client);
+      const user = await createUser(email, passwordHash, firstName, lastName, dateOfBirth, celular.e164, country, du, client);
       const wallet = await createWallet(user.id, firstName, client);
       await createOrUpdateBalance(wallet.id, "USD", "0.00000000", client);
       
@@ -130,10 +152,22 @@ export async function registerController(
     }
   } catch (error: unknown) {
     if (error && typeof error === "object" && "code" in error && error.code === "23505") {
+      const constraint = "constraint" in error ? String((error as { constraint?: unknown }).constraint) : "";
+      if (constraint.includes("email")) {
+        res.status(400).json({
+          success: false,
+          error: "DuplicateEmailError",
+          message: "El correo electrónico ya se encuentra registrado"
+        });
+        return;
+      }
+      // Colisión en otra columna (ej. DU): mensaje genérico a propósito, no confirmar que
+      // "ese DNI ya existe" evita que el registro sirva para probar si un DNI específico
+      // ya está en el sistema.
       res.status(400).json({
         success: false,
-        error: "DuplicateEmailError",
-        message: "El correo electrónico ya se encuentra registrado"
+        error: "DuplicateFieldError",
+        message: DUPLICATE_FIELD_GENERIC_MESSAGE,
       });
       return;
     }
@@ -226,6 +260,58 @@ export async function meController(
   }
 }
 
+/**
+ * Completa (o edita) celular, país y DU de la cuenta autenticada. Pensado sobre todo
+ * para las cuentas creadas vía Google, que no piden estos datos en el alta.
+ */
+export async function completeProfileController(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({ success: false, error: "UnauthorizedError", message: "Token no proporcionado." });
+      return;
+    }
+
+    const { phone, country, du } = req.body;
+
+    // El schema de Zod ya validó que sea un celular real vía validarCelular; acá lo volvemos
+    // a llamar para obtener el valor normalizado en E.164 y nunca persistir el string crudo.
+    const celular = validarCelular(phone, country);
+    if (!celular.e164) {
+      res.status(400).json({
+        success: false,
+        error: "VALIDATION_ERROR",
+        message: "El número de celular provisto no es válido."
+      });
+      return;
+    }
+
+    const user = await updateUserProfile(userId, celular.e164, country, du);
+    if (!user) {
+      res.status(404).json({ success: false, error: "NotFoundError", message: "Usuario no encontrado." });
+      return;
+    }
+    res.status(200).json({ success: true, data: { user: toUserResponse(user) } });
+  } catch (error: unknown) {
+    if (error && typeof error === "object" && "code" in error && error.code === "23505") {
+      // Mensaje genérico a propósito para celular y DU por igual: no confirmar que "ese dato
+      // ya existe" evita que este endpoint sirva para probar si un DNI o celular específico
+      // ya está registrado en el sistema.
+      res.status(400).json({
+        success: false,
+        error: "DuplicateFieldError",
+        message: DUPLICATE_FIELD_GENERIC_MESSAGE,
+      });
+      return;
+    }
+    next(error);
+  }
+}
+
 export function logoutController(_req: AuthenticatedRequest, res: Response): void {
   res.status(200).json({
     success: true,
@@ -261,10 +347,10 @@ export async function googleLoginController(
         audience: process.env.GOOGLE_CLIENT_ID,
       });
     } catch (err) {
-      res.status(401).json({ 
-        success: false, 
-        error: "UnauthorizedError", 
-        message: "Token de Google inválido o expirado." 
+      res.status(401).json({
+        success: false,
+        error: "UnauthorizedError",
+        message: "Token de Google inválido o expirado."
       });
       return;
     }
@@ -299,7 +385,10 @@ export async function googleLoginController(
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        user = await createUser(email, null, given_name || "Usuario", family_name || "", "1990-01-01", "+5491100000000", "AR", null, client);
+        // Celular, país y DU no se piden en el alta con Google: quedan sin completar
+        // (en vez de un placeholder inventado) hasta que el usuario los cargue desde
+        // PATCH /auth/me.
+        user = await createUser(email, null, given_name || "Usuario", family_name || "", "1990-01-01", null, "AR", null, client);
         const newWallet = await createWallet(user.id, given_name || "Usuario", client);
         await createOrUpdateBalance(newWallet.id, "USD", "0.00000000", client);
         await client.query("COMMIT");

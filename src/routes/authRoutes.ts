@@ -4,6 +4,7 @@ import {
   registerController,
   loginController,
   meController,
+  completeProfileController,
   logoutController,
   googleLoginController,
   forgotPasswordController,
@@ -11,7 +12,7 @@ import {
 } from "../controllers/authController.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { validateSchema } from "../middlewares/validateSchema.js";
-import { registerSchema, loginSchema, googleLoginSchema, forgotPasswordSchema, resetPasswordSchema } from "../schemas/authSchema.js";
+import { registerSchema, loginSchema, completeProfileSchema, googleLoginSchema, forgotPasswordSchema, resetPasswordSchema } from "../schemas/authSchema.js";
 
 export const authRouter = Router();
 
@@ -32,6 +33,7 @@ const forgotPasswordLimiter = rateLimit({
 authRouter.post("/register", validateSchema(registerSchema), registerController);
 authRouter.post("/login", validateSchema(loginSchema), loginController);
 authRouter.get("/me", authMiddleware, meController);
+authRouter.patch("/me", authMiddleware, validateSchema(completeProfileSchema), completeProfileController);
 authRouter.post("/logout", authMiddleware, logoutController);
 authRouter.post("/google", validateSchema(googleLoginSchema), googleLoginController);
 authRouter.post(

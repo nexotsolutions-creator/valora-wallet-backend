@@ -54,6 +54,32 @@ export async function createUser(
 }
 
 /**
+ * Completa (o edita) celular, país y DU de un usuario ya existente — usado para el flujo
+ * de cuentas de Google, que no piden estos datos en el alta.
+ * @param userId - User UUID
+ * @param phone - Celular en formato E.164
+ * @param country - Código ISO 3166-1 alpha-2
+ * @param du - Documento único, normalizado
+ * @returns The updated user object, or null si el userId no corresponde a ningún usuario
+ * (ej. token válido de una cuenta borrada mientras tanto) — igual que findUserById.
+ */
+export async function updateUserProfile(
+  userId: string,
+  phone: string,
+  country: string,
+  du: string
+): Promise<User | null> {
+  const sql = `
+    UPDATE users
+    SET phone = $1, country = $2, du = $3, updated_at = CURRENT_TIMESTAMP
+    WHERE id = $4
+    RETURNING id, email, password_hash, first_name, last_name, date_of_birth, phone, country, du, created_at, updated_at
+  `;
+  const result = await query(sql, [phone, country, du, userId]);
+  return result.rows[0] || null;
+}
+
+/**
  * Finds a user by their unique database ID.
  * @param id - User UUID
  * @returns The user object if found, or null otherwise.

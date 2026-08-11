@@ -15,9 +15,14 @@ CREATE TABLE IF NOT EXISTS users (
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
     date_of_birth DATE,
-    phone VARCHAR(20),
+    phone VARCHAR(20) UNIQUE,
+    phone_verificado BOOLEAN DEFAULT false NOT NULL,
     country VARCHAR(5) DEFAULT 'AR' NOT NULL,
-    du VARCHAR(20) UNIQUE NOT NULL,
+    -- Nullable a propósito (igual que phone): las cuentas creadas con Google no traen DU
+    -- del alta y quedan sin completar hasta que el usuario lo carga vía PATCH /auth/me.
+    -- Postgres permite múltiples NULL en una columna UNIQUE sin problema, así que esto no
+    -- debilita la regla de "un DNI, una cuenta" una vez que el valor sí está cargado.
+    du VARCHAR(20) UNIQUE,
     password_reset_token_hash VARCHAR(64),
     password_reset_expires_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -71,11 +76,25 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_birth DATE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS country VARCHAR(5) DEFAULT 'AR';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS du VARCHAR(20) UNIQUE;
+ALTER TABLE users ALTER COLUMN du DROP NOT NULL;
 ALTER TABLE wallets ADD COLUMN IF NOT EXISTS cvu VARCHAR(22) UNIQUE;
 ALTER TABLE wallets ADD COLUMN IF NOT EXISTS alias VARCHAR(100) UNIQUE;
 ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+-- Por si alguna instalación llegó a crear la tabla con el CREATE TABLE que tenía
+-- "du ... NOT NULL" (ver historial): sin este ALTER, esas instalaciones seguirían
+-- rechazando el alta con Google (que inserta du = NULL) aunque el CREATE TABLE de
+-- arriba ya esté corregido, porque CREATE TABLE IF NOT EXISTS no toca tablas existentes.
+-- No-op si la columna ya es nullable (como en Railway y en instalaciones nuevas).
+ALTER TABLE users ALTER COLUMN du DROP NOT NULL;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token_hash VARCHAR(64);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verificado BOOLEAN DEFAULT false NOT NULL;
+-- NOTA: a diferencia del resto de las columnas de esta sección, a propósito NO agregamos acá
+-- "ALTER TABLE users ADD CONSTRAINT ... UNIQUE (phone)". Hay teléfonos duplicados reales en
+-- producción hoy (cuentas de prueba) y ese ALTER fallaría y cortaría el deploy entero, ya que
+-- deploy.ts ejecuta este archivo completo como una sola consulta. El UNIQUE en el CREATE TABLE
+-- de arriba solo aplica a instalaciones nuevas. Limpiar los duplicados y agregar el constraint
+-- acá queda pendiente como tarea aparte.
 
 -- El índice va después del ALTER TABLE que agrega la columna: en una base existente
 -- (sin este ALTER todavía aplicado) crear el índice antes rompería todo el deploy,

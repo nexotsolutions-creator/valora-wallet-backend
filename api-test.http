@@ -1,19 +1,28 @@
-## 0. Health Check
-GET https://valora-wallet-backend.onrender.com/health
+@baseUrl = http://localhost:3000
+@token = {{login.response.body.data.token}}
 
-### 1. Registrar usuario
-POST https://valora-wallet-backend.onrender.com/auth/register
+### 0. Health Check
+GET {{baseUrl}}/health
+
+### 1. Registrar usuario (Auth)
+# @name register
+POST {{baseUrl}}/auth/register
 Content-Type: application/json
 
 {
   "email": "santiago.demo@valora.com",
   "password": "Password123!",
   "firstName": "Santiago",
-  "lastName": "Chavez"
+  "lastName": "Chavez",
+  "dateOfBirth": "15/05/1995",
+  "phone": "+5491123456789",
+  "country": "AR",
+  "du": "12345678"
 }
 
-### 2. Iniciar Sesión
-POST https://valora-wallet-backend.onrender.com/auth/login
+### 2. Iniciar Sesión (Auth)
+# @name login
+POST {{baseUrl}}/auth/login
 Content-Type: application/json
 
 {
@@ -21,6 +30,66 @@ Content-Type: application/json
   "password": "Password123!"
 }
 
-### 3. Obtener Perfil
-GET https://valora-wallet-backend.onrender.com/auth/me
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJhMTI2Njg3NC01ZTg2LTRiM2QtYmZlNy0xN2FiZjdkMGEwY2YiLCJlbWFpbCI6InNhbnRpYWdvLmRlbW9AdmFsb3JhLmNvbSIsImlhdCI6MTc4NTUxMTgwMywiZXhwIjoxNzg1NTk4MjAzfQ.xncE635mjhkorYoMWQeq4IUiDZ_zGV5MGSt69eKh7ho
+### 3. Obtener Perfil (Auth)
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{token}}
+
+### 4. Completar/Editar Celular, País y DU (Auth)
+# Sirve para completar el perfil de una cuenta creada con Google (arranca sin celular/DU)
+# o para editar estos datos en cualquier cuenta ya existente.
+PATCH {{baseUrl}}/auth/me
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "phone": "+54 9 11 2345-6789",
+  "country": "AR",
+  "du": "12345678"
+}
+
+### 5. Configurar Alias (Wallet)
+PUT {{baseUrl}}/wallet/alias
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "alias": "santiago.valora"
+}
+
+### 6. Realizar Depósito (Transactions)
+POST {{baseUrl}}/transactions/deposit
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "currency": "USD",
+  "amount": 500
+}
+
+### 7. Realizar Intercambio (Transactions)
+POST {{baseUrl}}/transactions/exchange
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "fromCurrency": "USD",
+  "toCurrency": "ARS",
+  "amount": 100
+}
+
+### 8. Ver Transacciones (Transactions)
+GET {{baseUrl}}/transactions?limit=10&page=1
+Authorization: Bearer {{token}}
+
+### 9. Ver Saldos Actuales (Balances)
+GET {{baseUrl}}/balances
+Authorization: Bearer {{token}}
+
+### 10. Chatbot - Asistente Financiero
+POST {{baseUrl}}/chatbot/message
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "message": "¿Me alcanza el saldo para comprar un café de 5 euros?"
+}

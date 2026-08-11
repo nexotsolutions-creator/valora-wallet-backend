@@ -11,7 +11,7 @@ describe("Pruebas de Billetera (Wallets)", () => {
     firstName: "Alias",
     lastName: "Tester",
     dateOfBirth: "15/05/1995",
-    phone: "+54 9 351 123-4567",
+    phone: "+54 9 11 2345-6789",
     country: "AR",
     du: "87654321"
   };

@@ -19,7 +19,7 @@ describe("Pruebas de integración del Chatbot", () => {
         firstName: "Chatbot",
         lastName: "Test",
         dateOfBirth: "01/01/1990",
-        phone: "+54 9 351 111-2222",
+        phone: "+54 9 11 1111-2222",
         country: "AR",
         du: "55555555",
     };

@@ -10,7 +10,7 @@ describe("Pruebas de integración para compra y venta (BUY/SELL)", () => {
     firstName: "Santiago",
     lastName: "Chavez",
     dateOfBirth: "15/05/1995",
-    phone: "+5493511234567",
+    phone: "+5491123456789",
     country: "AR",
     du: "22222222",
   };

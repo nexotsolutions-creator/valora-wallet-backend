@@ -1,6 +1,42 @@
 import { z } from "zod";
-import { parsePhoneNumberFromString, type CountryCode } from "libphonenumber-js";
 import { emailRegex } from "../utils/emailValidation.js";
+import { validarDocumento } from "../utils/documentValidation.js";
+import { validarCelular } from "../utils/phoneValidation.js";
+
+/**
+ * Códigos ISO 3166-1 alpha-2 de los 19 países de LATAM soportados para país/documento.
+ */
+export const PAISES_LATAM = [
+    "AR", "BO", "BR", "CL", "CO", "CR", "CU", "EC", "SV",
+    "GT", "HN", "MX", "NI", "PA", "PY", "PE", "DO", "UY", "VE",
+] as const;
+
+/**
+ * Validación cruzada compartida entre registro y "completar perfil": el DU y el celular
+ * dependen del país elegido, así que no se pueden validar campo por campo de forma aislada.
+ */
+function duYCelularRefinement(
+    data: { du: string; country: (typeof PAISES_LATAM)[number]; phone: string },
+    ctx: z.RefinementCtx
+): void {
+    const { valido, label } = validarDocumento(data.du, data.country);
+    if (!valido) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `El ${label} debe tener entre 5 y 15 caracteres alfanuméricos.`,
+            path: ["du"],
+        });
+    }
+
+    const celular = validarCelular(data.phone, data.country);
+    if (!celular.valido) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "El número de celular provisto no es válido. Verificá que sea un celular (no línea fija) del país seleccionado.",
+            path: ["phone"],
+        });
+    }
+}
 
 /**
  * Esquema de validación para el registro de usuarios
@@ -67,62 +103,34 @@ export const registerSchema = z.object({
     phone: z
         .string({ message: "El número de teléfono es requerido." })
         .trim()
-        .transform((val, ctx) => {
-            const defaultCountry: CountryCode = "AR";
-            const phoneNumber = val.startsWith("+")
-                ? parsePhoneNumberFromString(val)
-                : parsePhoneNumberFromString(val, defaultCountry);
-
-            if (!phoneNumber || !phoneNumber.isValid()) {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    message: "El número de teléfono provisto no es válido.",
-                });
-                return z.NEVER;
-            }
-            return phoneNumber.number; // E.164 format guaranteed
-        }),
-    country: z.enum(["AR", "PE", "MX", "CO"]).default("AR"),
+        .min(1, "El número de teléfono es requerido."),
+    country: z.enum(PAISES_LATAM, {
+        message: "El país provisto no está soportado.",
+    }).default("AR"),
     du: z
         .string({ message: "El documento único es requerido." })
         .trim()
         .transform((val) => val.replace(/[\s.-]/g, "").toUpperCase()),
-}).superRefine((data, ctx) => {
-    const du = data.du;
-    const country = data.country;
-    let isValid = false;
-    let expectedFormat = "";
+}).superRefine(duYCelularRefinement);
 
-    switch (country) {
-        case "AR":
-            isValid = /^\d{7,8}$/.test(du);
-            expectedFormat = "7 u 8 dígitos numéricos";
-            break;
-        case "PE":
-            isValid = /^\d{8}$/.test(du);
-            expectedFormat = "8 dígitos numéricos";
-            break;
-        case "CO":
-            isValid = /^\d{8,10}$/.test(du);
-            expectedFormat = "8 a 10 dígitos numéricos";
-            break;
-        case "MX":
-            isValid = /^[A-Z0-9]{10,18}$/.test(du);
-            expectedFormat = "10 a 18 caracteres alfanuméricos";
-            break;
-        default:
-            isValid = /^[A-Z0-9]{6,18}$/.test(du);
-            expectedFormat = "6 a 18 caracteres alfanuméricos";
-    }
-
-    if (!isValid) {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: `El documento único para ${country} no es válido. Formato esperado: ${expectedFormat}.`,
-            path: ["du"],
-        });
-    }
-});
+/**
+ * Esquema para completar celular, país y DU luego del registro (ej. cuentas creadas
+ * vía Google, que no piden estos datos en el alta). Reutiliza la misma validación
+ * que el registro para no tener dos criterios distintos de "celular/DU válido".
+ */
+export const completeProfileSchema = z.object({
+    phone: z
+        .string({ message: "El número de teléfono es requerido." })
+        .trim()
+        .min(1, "El número de teléfono es requerido."),
+    country: z.enum(PAISES_LATAM, {
+        message: "El país provisto no está soportado.",
+    }),
+    du: z
+        .string({ message: "El documento único es requerido." })
+        .trim()
+        .transform((val) => val.replace(/[\s.-]/g, "").toUpperCase()),
+}).superRefine(duYCelularRefinement);
 
 /**
  * Esquema de validación para el inicio de sesión
@@ -169,6 +177,7 @@ export const resetPasswordSchema = z.object({
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;
+export type CompleteProfileInput = z.infer<typeof completeProfileSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;

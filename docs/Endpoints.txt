@@ -1,13 +1,28 @@
-# Guia de Endpoints para Insomnia
+# Guia de Endpoints para Insomnia / REST Client
 
-Esta es la guia paso a paso para probar tu backend localmente utilizando **Insomnia**.
+Esta es la guia paso a paso para probar tu backend localmente utilizando **Insomnia** o cualquier cliente HTTP.
 
-> ⚠️ **IMPORTANTE: Configuracion de Base de Datos**
-> Antes de empezar, asegurate de que tu archivo `.env` contenga la siguiente variable al final. Esto soluciona el error `self-signed certificate` con la base de datos de Railway:
+> ⚠️ **IMPORTANTE: Configuracion de Base de Datos y Seguridad TLS**
+> Antes de empezar, asegurate de que tu archivo `.env` contenga la siguiente variable al final. Esto soluciona el error `self-signed certificate` con la base de datos de Railway.
+> *Advertencia: Esto deshabilita la verificación TLS estricta. Utilízalo únicamente para desarrollo local, o si el proveedor proxy remoto (Railway) requiere tolerancia a certificados auto-firmados.*
 > ```env
 > DB_SSL_REJECT_UNAUTHORIZED=false
 > ```
-> *(Esta configuración deshabilita la verificación TLS estricta. Es un workaround válido solo para desarrollo local, y está fuertemente desaconsejado en entornos de producción reales).*
+
+---
+
+## 0. Utilidades (`/health`)
+
+### 0.1 Verificar Estado del Servidor
+*   **Metodo:** `GET`
+*   **URL:** `http://localhost:3000/health`
+*   **Respuesta de Exito (200 OK):**
+    ```json
+    {
+      "status": "UP",
+      "timestamp": "2023-10-25T10:00:00.000Z"
+    }
+    ```
 
 ---
 
@@ -16,11 +31,7 @@ Esta es la guia paso a paso para probar tu backend localmente utilizando **Insom
 ### 1.1 Registrar un Usuario
 *   **Metodo:** `POST`
 *   **URL:** `http://localhost:3000/auth/register`
-*   **Descripcion:** Crea una cuenta nueva de usuario. Empezaremos creando a un usuario llamado "Carlos".
-*   **Como probarlo en Insomnia:**
-    1. Crea un nuevo Request. Selecciona `POST` y pega la URL.
-    2. Ve a la pestana **Body**, selecciona **JSON**.
-    3. Pega este contenido:
+*   **Request Body (JSON):**
     ```json
     {
       "email": "carlos.prueba@email.com",
@@ -33,62 +44,284 @@ Esta es la guia paso a paso para probar tu backend localmente utilizando **Insom
       "du": "12345678"
     }
     ```
-    4. Haz clic en **Send**. Deberias recibir una respuesta indicando que el registro fue exitoso.
+*   **Respuesta de Exito (201 Created):**
+    ```json
+    {
+      "success": true,
+      "data": {
+        "token": "eyJhbGciOiJIUzI1...",
+        "user": {
+          "id": "uuid",
+          "email": "carlos.prueba@email.com",
+          "firstName": "Carlos",
+          "lastName": "Lopez",
+          "dateOfBirth": "10/10/1995",
+          "phone": "+525512345678",
+          "country": "AR",
+          "du": "12345678",
+          "profileComplete": true
+        },
+        "wallet": {
+          "id": "uuid-wallet",
+          "cvu": "1234567890123456789012",
+          "alias": "carlos.lopez.valora"
+        }
+      }
+    }
+    ```
+*   **Respuesta de Error (400 Bad Request - Email en uso):**
+    ```json
+    {
+      "success": false,
+      "error": "DuplicateEmailError",
+      "message": "El correo electrónico ya se encuentra registrado"
+    }
+    ```
 
-### 1.2 Iniciar Sesion (Obtener el Token)
+### 1.2 Iniciar Sesion
 *   **Metodo:** `POST`
 *   **URL:** `http://localhost:3000/auth/login`
-*   **Descripcion:** Inicia sesion con el usuario recien creado para obtener el Token de Autorizacion.
-*   **Como probarlo en Insomnia:**
-    1. Crea un nuevo Request `POST` con la URL.
-    2. En **Body** -> **JSON**, ingresa las credenciales:
+*   **Request Body (JSON):**
     ```json
     {
       "email": "carlos.prueba@email.com",
       "password": "PasswordSeguro123!"
     }
     ```
-    3. Haz clic en **Send**.
-    4. **COPIA EL TOKEN:** En la respuesta veras un campo `token` (un texto largo que empieza con "ey..."). Copia ese texto. Lo vas a necesitar para los siguientes endpoints.
+*   **Respuesta de Exito (200 OK):**
+    ```json
+    {
+      "success": true,
+      "data": {
+        "token": "eyJhbGciOiJIUzI1...",
+        "user": {
+          "id": "uuid",
+          "email": "carlos.prueba@email.com",
+          "firstName": "Carlos",
+          "lastName": "Lopez",
+          "dateOfBirth": "10/10/1995",
+          "phone": "+525512345678",
+          "country": "AR",
+          "du": "12345678",
+          "profileComplete": true
+        },
+        "wallet": {
+          "id": "uuid-wallet",
+          "cvu": "1234567890123456789012",
+          "alias": "carlos.lopez.valora"
+        }
+      }
+    }
+    ```
 
 ### 1.3 Obtener Mi Perfil 🔒
 *   **Metodo:** `GET`
 *   **URL:** `http://localhost:3000/auth/me`
-*   **Descripcion:** Devuelve los datos del perfil de Carlos. Requiere autenticacion.
-*   **Como probarlo en Insomnia:**
-    1. Crea un nuevo Request `GET` con la URL.
-    2. Ve a la pestana **Auth** y selecciona la opcion `Bearer Token`.
-    3. En el campo **Token**, pega el texto que copiaste en el paso anterior.
-    4. Haz clic en **Send**. *(No requiere Body)*.
+*   **Headers:** `Authorization: Bearer <TOKEN>`
+*   **Respuesta de Exito (200 OK):**
+    ```json
+    {
+      "success": true,
+      "data": {
+        "user": {
+          "id": "uuid",
+          "email": "carlos.prueba@email.com",
+          "firstName": "Carlos",
+          "lastName": "Lopez",
+          "dateOfBirth": "10/10/1995",
+          "phone": "+525512345678",
+          "country": "AR",
+          "du": "12345678",
+          "profileComplete": true
+        },
+        "wallet": {
+          "id": "uuid-wallet",
+          "cvu": "1234567890123456789012",
+          "alias": "carlos.lopez.valora"
+        },
+        "balances": [
+          {
+            "id": "uuid-balance",
+            "walletId": "uuid-wallet",
+            "currency": "USD",
+            "amount": "500.00000000",
+            "updatedAt": "2023-10-25T10:00:00.000Z"
+          }
+        ]
+      }
+    }
+    ```
+
+### 1.4 Iniciar Sesion con Google
+*   **Metodo:** `POST`
+*   **URL:** `http://localhost:3000/auth/google`
+*   **Request Body (JSON):**
+    ```json
+    {
+      "idToken": "<idToken devuelto por el SDK de Google en el frontend>"
+    }
+    ```
+*   **Respuesta de Exito (200 OK):** Si la cuenta ya existia, la loguea. Si no existia, la crea **sin celular ni DU** (esos datos no los provee Google) — ver 1.5 para completarlos.
+    ```json
+    {
+      "success": true,
+      "data": {
+        "token": "eyJhbGciOiJIUzI1...",
+        "user": {
+          "id": "uuid",
+          "email": "carlos.prueba@gmail.com",
+          "firstName": "Carlos",
+          "lastName": "Lopez",
+          "dateOfBirth": null,
+          "phone": null,
+          "country": "AR",
+          "du": null,
+          "profileComplete": false
+        },
+        "wallet": {
+          "id": "uuid-wallet",
+          "cvu": "1234567890123456789012",
+          "alias": "carlos.lopez.valora"
+        }
+      }
+    }
+    ```
+*   ⚠️ Mientras `profileComplete` sea `false`, el backend rechaza con `403` cualquier intento de depositar, comprar, vender o intercambiar (ver nota al final de la sección 3). El frontend deberia mostrar un paso de "completar perfil" apenas detecte `profileComplete: false`.
+
+### 1.5 Completar/Editar Celular, Pais y DU 🔒
+*   **Metodo:** `PATCH`
+*   **URL:** `http://localhost:3000/auth/me`
+*   **Headers:** `Authorization: Bearer <TOKEN>`
+*   Sirve tanto para completar el perfil de una cuenta creada con Google como para editar estos datos en cualquier cuenta ya existente. Los tres campos van siempre juntos (la validacion del DU depende del pais, y la del celular depende de que sea un celular real, no linea fija).
+*   **Request Body (JSON):**
+    ```json
+    {
+      "phone": "+54 9 11 2345-6789",
+      "country": "AR",
+      "du": "12345678"
+    }
+    ```
+    `phone` puede venir en cualquier formato razonable (con espacios, guiones, etc.) — el backend lo normaliza a E.164 antes de guardarlo. Tiene que incluir el codigo de pais del celular (`+54...`), que puede ser distinto al `country` de residencia.
+*   **Respuesta de Exito (200 OK):**
+    ```json
+    {
+      "success": true,
+      "data": {
+        "user": {
+          "id": "uuid",
+          "email": "carlos.prueba@gmail.com",
+          "firstName": "Carlos",
+          "lastName": "Lopez",
+          "phone": "+5491123456789",
+          "country": "AR",
+          "du": "12345678",
+          "profileComplete": true
+        }
+      }
+    }
+    ```
+*   **Respuesta de Error (400 Bad Request - Celular invalido o linea fija):**
+    ```json
+    {
+      "success": false,
+      "error": "VALIDATION_ERROR",
+      "message": "El número de celular provisto no es válido. Verificá que sea un celular (no línea fija) del país seleccionado.",
+      "issues": ["El número de celular provisto no es válido. Verificá que sea un celular (no línea fija) del país seleccionado."]
+    }
+    ```
+*   **Respuesta de Error (400 Bad Request - Celular o DU ya en uso):** el mensaje es genérico a propósito — no confirma si el dato ya existe, para no habilitar que se use este endpoint para probar si un celular o DNI específico ya está registrado.
+    ```json
+    {
+      "success": false,
+      "error": "DuplicateFieldError",
+      "message": "No pudimos guardar esos datos. Si creés que se trata de un error, escribinos a nexot.solutions@gmail.com."
+    }
+    ```
 
 ---
 
-## 2. Transacciones (`/transactions`)
+## 2. Billetera (`/wallet`)
 
-### 2.1 Realizar un Deposito 🔒
+### 2.1 Actualizar Alias 🔒
+*   **Metodo:** `PUT`
+*   **URL:** `http://localhost:3000/wallet/alias`
+*   **Headers:** `Authorization: Bearer <TOKEN>`
+*   **Request Body (JSON):**
+    ```json
+    {
+      "alias": "mi.nuevo.alias"
+    }
+    ```
+*   **Respuesta de Exito (200 OK):**
+    ```json
+    {
+      "success": true,
+      "data": {
+        "wallet": {
+          "id": "uuid-wallet",
+          "cvu": "1234567890123456789012",
+          "alias": "mi.nuevo.alias"
+        }
+      },
+      "message": "Alias actualizado correctamente."
+    }
+    ```
+*   **Respuesta de Error (409 Conflict - Alias ocupado):**
+    ```json
+    {
+      "success": false,
+      "error": "DuplicateAliasError",
+      "message": "Este alias ya está en uso por otro usuario."
+    }
+    ```
+
+---
+
+## 3. Transacciones (`/transactions`)
+
+> ⚠️ **Perfil incompleto:** depositar, comprar (`/buy`), vender (`/sell`) e intercambiar (`/exchange`) requieren que la cuenta tenga celular y DU cargados (`profileComplete: true` en el usuario — ver seccion 1.4 y 1.5). Si no, devuelven:
+> ```json
+> {
+>   "success": false,
+>   "error": "IncompleteProfileError",
+>   "message": "Completá tu celular y tu <documento> antes de operar con tu billetera."
+> }
+> ```
+> con status `403`. `<documento>` varía según el `country` de la cuenta (DNI, CPF, CURP, CI, etc. — ver seccion 1.5 y `GET /catalogs/document-types`), no es siempre "DNI". Cotizar (`/quote`) es de solo lectura y **no** requiere perfil completo.
+
+### 3.1 Realizar un Deposito 🔒
 *   **Metodo:** `POST`
 *   **URL:** `http://localhost:3000/transactions/deposit`
-*   **Descripcion:** Ingresa dinero en la billetera de Carlos. En este ejemplo, vamos a depositar 500 Dolares (USD).
-*   **Como probarlo en Insomnia:**
-    1. Crea un nuevo Request `POST` con la URL.
-    2. En la pestana **Auth**, selecciona **Bearer Token** y pega el token.
-    3. En **Body** -> **JSON**, pega lo siguiente:
+*   **Request Body (JSON):**
     ```json
     {
       "currency": "USD",
       "amount": 500
     }
     ```
-    4. Haz clic en **Send**.
+*   **Respuesta de Exito (200 OK):**
+    ```json
+    {
+      "success": true,
+      "data": {
+        "id": "uuid-tx",
+        "walletId": "uuid-wallet",
+        "transactionType": "DEPOSIT",
+        "sourceCurrency": null,
+        "targetCurrency": "USD",
+        "sourceAmount": null,
+        "targetAmount": 500,
+        "exchangeRate": null,
+        "resultingBalance": 500,
+        "createdAt": "2023-10-25T10:00:00.000Z"
+      }
+    }
+    ```
 
-### 2.2 Realizar un Exchange (Cambio de Moneda) 🔒
+### 3.2 Realizar un Exchange 🔒
 *   **Metodo:** `POST`
 *   **URL:** `http://localhost:3000/transactions/exchange`
-*   **Descripcion:** Cambia una parte del dinero depositado a otra moneda. Aqui cambiaremos 100 USD a ARS (Pesos Argentinos).
-*   **Como probarlo en Insomnia:**
-    1. Crea un nuevo Request `POST` con la URL.
-    2. En la pestana **Auth**, selecciona **Bearer Token** y pega el token.
-    3. En **Body** -> **JSON**, pega lo siguiente:
+*   **Request Body (JSON):**
     ```json
     {
       "fromCurrency": "USD",
@@ -96,56 +329,61 @@ Esta es la guia paso a paso para probar tu backend localmente utilizando **Insom
       "amount": 100
     }
     ```
-    4. Haz clic en **Send**.
+*   **Respuesta de Exito (200 OK):**
+    ```json
+    {
+      "success": true,
+      "data": {
+        "id": "uuid-tx",
+        "walletId": "uuid-wallet",
+        "transactionType": "EXCHANGE",
+        "sourceCurrency": "USD",
+        "targetCurrency": "ARS",
+        "sourceAmount": 100,
+        "targetAmount": 105050,
+        "exchangeRate": 1050.50,
+        "resultingBalance": 400,
+        "createdAt": "2023-10-25T10:05:00.000Z"
+      }
+    }
+    ```
+*   **Respuesta de Error (400 Bad Request - Sin fondos):**
+    ```json
+    {
+      "success": false,
+      "error": "INSUFFICIENT_FUNDS",
+      "message": "Saldo insuficiente para realizar la operación."
+    }
+    ```
 
 ---
 
-## 3. Saldos (`/balances`)
+## 4. Asistente Financiero (Chatbot)
 
-### 3.1 Ver Saldos Actuales 🔒
-*   **Metodo:** `GET`
-*   **URL:** `http://localhost:3000/balances`
-*   **Descripcion:** Muestra los saldos que tiene Carlos. Deberias ver los USD restantes (400) y los ARS que obtuvo del exchange.
-*   **Como probarlo en Insomnia:**
-    1. Crea un nuevo Request `GET` con la URL.
-    2. En la pestana **Auth**, selecciona **Bearer Token** y pega el token.
-    3. Haz clic en **Send**. *(No requiere Body)*.
-
----
-
-## 4. Estado de Salud (`/health`)
-
-### 4.1 Comprobar el Servidor
-*   **Metodo:** `GET`
-*   **URL:** `http://localhost:3000/health`
-*   **Descripcion:** Sirve simplemente para confirmar que el servidor backend esta encendido y funcionando.
-*   **Como probarlo en Insomnia:**
-    1. Crea un nuevo Request `GET` con la URL.
-    2. Haz clic en **Send**. *(No requiere Auth ni Body)*.
-    3. Recibiras una respuesta indicando `{"status": "ok"}`.
-
-## 5. Asistente Financiero (Chatbot)
-
-### 5.1 Enviar Mensaje a la IA
+### 4.1 Enviar Mensaje a la IA 🔒
 *   **Metodo:** `POST`
 *   **URL:** `http://localhost:3000/chatbot/message`
-*   **Descripcion:** Envía una consulta de texto al asistente financiero. El servidor inyectará automáticamente los saldos del usuario para generar respuestas contextuales. Requiere autenticación.
-*   **Como probarlo en Insomnia:**
-    1. Crea un nuevo Request `POST` con la URL.
-    2. En la pestana **Auth**, selecciona **Bearer Token** y pega el token.
-    3. En **Body** -> **JSON**, pega lo siguiente:
+*   **Headers:** `Authorization: Bearer <TOKEN>`
+*   **Request Body (JSON):**
     ```json
     {
       "message": "¿Me alcanza el saldo para comprar un café de 5 euros?"
     }
     ```
-    4. Haz clic en **Send**.
-    5. **Respuesta Exitosa (200 OK):**
+*   **Respuesta de Exito (200 OK):**
     ```json
     {
       "success": true,
       "data": {
         "reply": "Si tienes saldo suficiente. Actualmente cuentas con 55 EUR en tu billetera."
       }
+    }
+    ```
+*   **Respuesta de Error (500 Internal Server Error - Falla IA):**
+    ```json
+    {
+      "success": false,
+      "error": "InternalServerError",
+      "message": "Error interno del servidor. Por favor, inténtelo de nuevo más tarde."
     }
     ```

@@ -18,13 +18,13 @@ function getJwtSecret(): string {
 }
 
 /**
- * Genera un token JWT firmado con validez de 24 horas.
+ * Genera un token JWT firmado con validez de 15 minutos.
  * @param payload - Datos del usuario a incluir en el token.
  * @returns El token JWT firmado.
  */
 export function generateToken(payload: JwtPayload): string {
   const secret = getJwtSecret();
-  return jwt.sign(payload, secret, { algorithm: "HS256", expiresIn: "24h" });
+  return jwt.sign(payload, secret, { algorithm: "HS256", expiresIn: "15m" });
 }
 
 /**

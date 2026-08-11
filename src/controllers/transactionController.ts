@@ -1,7 +1,7 @@
 import type { Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../middlewares/authMiddleware.js";
 import type { Transaction } from "../models/transactionModel.js";
-import { executeDeposit, executeExchange, getUserTransactions, executeBuy, executeSell } from "../services/transactionService.js";
+import { executeDeposit, executeExchange, getUserTransactions, executeBuy, executeSell, getExchangeQuote } from "../services/transactionService.js";
 import type { GetTransactionsQuery } from "../schemas/transactionSchema.js";
 
 /**
@@ -40,6 +40,30 @@ export async function depositController(req: AuthenticatedRequest, res: Response
         res.status(200).json({
             success: true,
             data: mapTransactionToCamelCase(transaction)
+        });
+    } catch (error: unknown) {
+        next(error);
+    }
+}
+
+/**
+ * Controller to handle quote requests.
+ */
+export async function quoteController(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+        const userId = req.user?.userId;
+        const { fromCurrency, toCurrency, amount } = req.body;
+
+        if (!userId) {
+            res.status(401).json({ success: false, error: "AUTH_ERROR", message: "Usuario no autorizado." });
+            return;
+        }
+        
+        const quote = await getExchangeQuote(fromCurrency, toCurrency, amount);
+
+        res.status(200).json({
+            success: true,
+            data: quote
         });
     } catch (error: unknown) {
         next(error);
