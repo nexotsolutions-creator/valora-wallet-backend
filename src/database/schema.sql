@@ -100,3 +100,16 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verificado BOOLEAN DEFAULT fals
 -- (sin este ALTER todavía aplicado) crear el índice antes rompería todo el deploy,
 -- ya que deploy.ts ejecuta este archivo entero como una sola consulta.
 CREATE INDEX IF NOT EXISTS idx_users_password_reset_token_hash ON users(password_reset_token_hash);
+
+-- Soportar TRANSFER_OUT y TRANSFER_IN en historial de transacciones
+ALTER TABLE transactions DROP CONSTRAINT IF EXISTS transactions_transaction_type_check;
+ALTER TABLE transactions ADD CONSTRAINT transactions_transaction_type_check CHECK (transaction_type IN ('BUY', 'SELL', 'EXCHANGE', 'DEPOSIT', 'TRANSFER_OUT', 'TRANSFER_IN'));
+
+-- Añadir metadatos de contraparte para transferencias (Efecto Fantasma mitigado)
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS counterparty_id UUID REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS counterparty_name VARCHAR(100);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS counterparty_last_name VARCHAR(100);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS counterparty_email VARCHAR(255);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS counterparty_wallet UUID REFERENCES wallets(id) ON DELETE SET NULL;
+
+

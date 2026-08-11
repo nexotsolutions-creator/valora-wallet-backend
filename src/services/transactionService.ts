@@ -240,6 +240,15 @@ export async function executeTransfer(senderUserId: string, currency: string, am
     try {
         await client.query("BEGIN");
 
+        // Bloqueo determinístico para prevenir Deadlocks en transferencias concurrentes.
+        // NOTA ARQUITECTÓNICA: Se usa [[id1, id2]] intencionalmente. El driver 'pg' requiere que 
+        // el parámetro $1 (el array de UUIDs) esté encapsulado en el índice 0 del array de 'values'.
+        // Si usamos [id1, id2] sin anidar, pg asignaría $1=id1 y $2=id2, rompiendo la consulta.
+        await client.query(
+            `SELECT id FROM wallets WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`,
+            [[senderWallet.id, recipientInfo.wallet_id]]
+        );
+
         let senderUpdatedBalance;
         try {
             senderUpdatedBalance = await updateUserBalance(client, senderWallet.id, currency, -amount);

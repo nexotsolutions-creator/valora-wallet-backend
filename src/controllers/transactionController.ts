@@ -161,7 +161,6 @@ export async function resolveTransferController(req: AuthenticatedRequest, res: 
             data: {
                 firstName: destination.first_name,
                 lastName: destination.last_name,
-                du: destination.du,
                 alias: destination.alias,
                 cvu: destination.cvu,
                 email: destination.email
