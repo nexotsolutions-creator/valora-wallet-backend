@@ -21,7 +21,7 @@ Como encargado del motor financiero, trabajaste en toda la vertical de transacci
 ### Pruebas y Documentación (Día 4)
 - **`src/tests/exchange.test.ts`**: Pruebas de integración con Mocks (`vi.mock`) para simular la caída de la API de cotizaciones.
 - **`src/tests/transactions.test.ts`**: Pruebas de tus unhappy paths (intentar operar sin saldo suficiente).
-- **`Endpoints.txt`**: Tu documentación técnica para el equipo y Frontend.
+- **`docs/Endpoints.txt`**: Tu documentación técnica para el equipo y Frontend.
 
 ---
 

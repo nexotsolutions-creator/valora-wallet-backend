@@ -37,6 +37,38 @@ describe("Pruebas de CORS, JSON malformado y stack traces", () => {
       expect(response.body.error).toBe("CORS_ERROR");
       expect(response.body.message).toBe("No permitido por CORS");
     });
+
+    it("debería permitir previews de Vercel de este proyecto (ramas/PRs)", async () => {
+      const previewOrigin = "https://valora-wallet-frontend-git-analia-nexo-tech-solutions.vercel.app";
+      const response = await request(app)
+        .get("/health")
+        .set("Origin", previewOrigin);
+
+      expect(response.status).toBe(200);
+      expect(response.headers["access-control-allow-origin"]).toBe(previewOrigin);
+    });
+
+    it("no debería permitir un dominio de Vercel de otro proyecto", async () => {
+      const response = await request(app)
+        .get("/health")
+        .set("Origin", "https://otro-proyecto.vercel.app");
+
+      expect(response.status).toBe(403);
+      expect(response.body.error).toBe("CORS_ERROR");
+    });
+
+    it("no debería permitir un dominio de terceros que empiece igual pero con otro team slug", async () => {
+      // Caso puntual detectado en review: los nombres de proyecto en Vercel no
+      // están reservados globalmente, así que cualquiera podría registrar un
+      // proyecto propio con el prefijo "valora-wallet-frontend". Sin exigir
+      // el team slug real, ese dominio pasaría el whitelist igual.
+      const response = await request(app)
+        .get("/health")
+        .set("Origin", "https://valora-wallet-frontend-atacante-otro-team.vercel.app");
+
+      expect(response.status).toBe(403);
+      expect(response.body.error).toBe("CORS_ERROR");
+    });
   });
 
   describe("Manejo de JSON Malformado", () => {

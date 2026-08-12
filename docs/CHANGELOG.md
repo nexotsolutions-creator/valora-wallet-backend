@@ -5,6 +5,32 @@ Todos los cambios notables en este proyecto serán documentados en este archivo.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/)
 y este proyecto se adhiere a [Versionado Semántico](https://semver.org/lang/es/).
 
+## [1.3.0] - 2026-08-11
+
+### Added (Añadido)
+- **Google OAuth 2.0:** Registro e inicio de sesión con cuenta de Google (`POST /auth/google`). Los usuarios creados por Google quedan con perfil incompleto (`profileComplete: false`) hasta completar celular y DU.
+- **Completar/Editar Perfil:** Nuevo endpoint `PATCH /auth/me` para cargar celular, país y documento único. Valida celular real (no línea fija) con `libphonenumber-js` y DU según el país (DNI, CPF, CURP, CI).
+- **Middleware `requireCompleteProfile`:** Bloquea operaciones financieras (depósito, compra, venta, exchange) para cuentas con perfil incompleto (`403 IncompleteProfileError`). Cotización (`/quote`) queda exenta.
+- **Catálogo de Documentos:** Nuevo endpoint `GET /catalogs/document-types` que devuelve la lista de tipos de documento válidos por país.
+- **Edición de Alias:** Nuevo endpoint `PUT /wallet/alias` para personalizar el alias de la billetera.
+- **Validación de Celular por País:** Integración de `libphonenumber-js/max` para validar y normalizar números de celular, rechazando líneas fijas.
+- **Validación de Documento por País:** Validación dinámica de DU según el país del usuario (AR: 7-8 dígitos, PE: 8, CO: 8-10, MX: 10-18 alfanumérico).
+- **Seed Data:** Script `src/database/seed.ts` para poblar la base de datos con 3 usuarios demo con consistencia contable exacta (saldos e historial reconciliados), robustez ante fallos de conexión y soporte para automatización (exitCode=1 en error). Ejecuta dentro de transacción ACID.
+- **Tests nuevos:** `phoneValidation.test.ts`, `documentValidation.test.ts`, `requireCompleteProfile.test.ts`, `catalogs.test.ts`, `jwt.test.ts`. Total: 18 suites, 100+ tests pasando.
+
+### Changed (Modificado)
+- **TTL del JWT:** Reducido de 24 horas a 15 minutos por seguridad.
+- **Estructura de Respuestas Auth:** `walletId` (string) reemplazado por objeto `wallet: { id, cvu, alias }` en register, login, google y me. **Breaking change para el Frontend** (documentado en `docs/informe_frontend.md`).
+- **CORS Dinámico:** Ahora acepta la URL de producción fija + cualquier preview de Vercel del mismo proyecto (`valora-wallet-frontend-*.vercel.app`).
+- **Schema SQL:** Columnas `du` y `password_hash` ahora son nullable para soportar cuentas Google. Migraciones `ALTER TABLE` incluidas para bases existentes.
+- **Esquemas Zod:** Registro ahora valida `country`, `du`, `phone` y `dateOfBirth` con reglas dinámicas por país.
+
+### Security (Seguridad)
+- **JWT TTL 15 min:** Reduce la ventana de exposición ante tokens comprometidos.
+- **Perfil Completo Obligatorio:** Impide operar financieramente sin celular y documento verificado.
+- **Rechazo de Líneas Fijas:** Solo acepta celulares reales, preparando el terreno para verificación SMS/WhatsApp.
+- **Borrado Acotado en Seed:** El script de seed solo borra cuentas `demo.%@valora.com`, nunca cuentas reales.
+
 ## [1.2.1] - 2026-08-04
 
 ### Changed (Modificado)

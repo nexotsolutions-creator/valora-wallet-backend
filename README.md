@@ -2,36 +2,40 @@
 
 API REST para **Valora Wallet**, billetera digital multi-moneda para freelancers y trabajadores remotos en LATAM. Permite gestionar balances en USD, EUR y ARS, ejecutar compra/venta/intercambio con tasas reales, enviar comprobantes por email y consultar un asistente financiero con IA.
 
-## 🚀 Enlaces de Despliegue (Demo #1)
+## 🚀 Enlaces de Despliegue
 
-- **Backend API (Railway):** [https://valora-wallet-backend.up.railway.app](https://valora-wallet-backend.up.railway.app) (o tu URL de producción en Railway)
+- **Backend API (Railway):** [https://valora-wallet-backend-production.up.railway.app](https://valora-wallet-backend-production.up.railway.app)
 - **Base de Datos PostgreSQL (Railway):** Instancia de base de datos activa y provisionada.
-- **Frontend (Vercel):** [https://valora-wallet.vercel.app](https://valora-wallet.vercel.app) (o tu URL de producción en Vercel)
+- **Frontend (Vercel):** [https://valora-wallet-frontend.vercel.app](https://valora-wallet-frontend.vercel.app)
 
 ## Stack
 
-- **Runtime:** Node.js + Express + TypeScript
+- **Runtime:** Node.js 22+ / Express 5 / TypeScript (ESM)
 - **Base de datos:** PostgreSQL (Railway)
-- **Autenticación:** JWT
-- **Emails:** AWS SES vía Vercel Functions
+- **Autenticación:** JWT (HS256, TTL 15 min) + Google OAuth 2.0
+- **Validación:** Zod v4 + libphonenumber-js (celular por país) + validación de DU por país
+- **Emails:** AWS SES (comprobantes transaccionales)
 - **Chatbot:** Google Gemini API (gemini-2.5-flash)
-- **Testing:** Vitest
-- **Despliegue:** Railway
+- **Seguridad:** express-rate-limit, CORS whitelist dinámica, middleware de perfil completo
+- **Testing:** Vitest + Supertest (18 suites, 100+ tests)
+- **Despliegue:** Railway (CI/CD automático desde `main`)
 
 ## Requisitos
 
-- Node.js 20+
+- Node.js 22+
 - Cuenta de PostgreSQL local o acceso a la instancia de Railway
 - Variables de entorno (ver `.env.example`)
+- (Opcional) Google Cloud Console con OAuth Client ID configurado para login con Google
 
 ## Instalación y setup local
 
 ```bash
-git clone https://github.com/<org-o-usuario>/valora-wallet-backend.git
+git clone https://github.com/nexotsolutions-creator/valora-wallet-backend.git
 cd valora-wallet-backend
 npm install
 cp .env.example .env   # completar con tus valores locales
 npm run db:init        # inicializa el esquema de la base de datos (PostgreSQL)
+npx tsx src/database/seed.ts  # (opcional) poblar con datos demo para la presentación
 npm run dev             # levanta el servidor en modo desarrollo
 ```
 
@@ -41,7 +45,8 @@ npm run dev             # levanta el servidor en modo desarrollo
 | ----------------------- | ------------------------------------------------------ |
 | `DATABASE_URL`          | Connection string de PostgreSQL                        |
 | `DB_SSL_REJECT_UNAUTHORIZED` | Valida estrictamente certificados SSL de la base de datos (por defecto `true`). Colocar `false` para omitir. |
-| `JWT_SECRET`            | Secreto para firmar los tokens JWT                     |
+| `JWT_SECRET`            | Secreto para firmar los tokens JWT (HS256, TTL 15 min) |
+| `GOOGLE_CLIENT_ID`      | Client ID de Google OAuth 2.0 (Google Cloud Console)   |
 | `AWS_ACCESS_KEY_ID`     | Credencial de AWS SES                                  |
 | `AWS_SECRET_ACCESS_KEY` | Credencial de AWS SES                                  |
 | `AWS_SES_REGION`        | Región de AWS SES                                      |
@@ -54,12 +59,20 @@ npm run dev             # levanta el servidor en modo desarrollo
 
 ```
 src/
-  ├── controllers/     # Lógica de cada endpoint
-  ├── models/           # Modelos de datos (users, wallets, balances, transactions)
-  ├── routes/            # Definición de rutas de la API
-  ├── middlewares/     # Auth, validaciones, manejo de errores
-  ├── services/           # Integraciones externas (Frankfurter, ExchangeRate-API, Gemini, AWS SES)
-  └── tests/                # Suite de tests con Vitest
+  ├── controllers/     # Lógica de cada endpoint (auth, transactions, balances, chatbot, catalog)
+  ├── database/        # Schema SQL, deploy script y seed data para demo
+  ├── middlewares/     # Auth JWT, validación Zod, rate limiting, perfil completo, CORS, errores
+  ├── models/          # Modelos de datos (users, wallets, balances, transactions)
+  ├── routes/          # Definición de rutas de la API
+  ├── schemas/         # Esquemas de validación Zod (auth, transactions)
+  ├── services/        # Integraciones externas (Frankfurter, Gemini, AWS SES)
+  ├── tests/           # 18 suites de tests con Vitest + Supertest
+  └── utils/           # JWT, validación de celular, validación de documento
+docs/
+  ├── CHANGELOG.md     # Historial de versiones
+  ├── Endpoints.txt    # Guía completa de endpoints para Insomnia/REST Client
+  ├── Explicacion.md   # Detalle técnico del motor financiero
+  └── informe_frontend.md  # Reporte de integración Backend → Frontend
 ```
 
 ## 📊 Modelo de Datos y Justificación de Diseño (PostgreSQL)
@@ -225,8 +238,9 @@ npm run test
 npm run dev        # desarrollo con hot-reload
 npm run build      # build de producción
 npm run start      # levanta el build de producción
-npm run test        # corre la suite de Vitest
+npm run test       # corre las 18 suites de Vitest (100+ tests)
 npm run db:init    # inicializa y despliega el esquema SQL en la base de datos (PostgreSQL)
+npx tsx src/database/seed.ts  # poblar con usuarios demo y transacciones para la presentación
 ```
 
 ## ⚙️ Despliegue en Producción (Railway y Vercel)
@@ -238,164 +252,27 @@ El backend de **Valora Wallet** se encuentra configurado para un flujo de Integr
 3. **Configuración de Entorno:** Las variables de entorno críticas (definidas en `.env.example`) se configuran directamente en el panel de control del servicio de Railway, asegurando que ningún dato sensible o credencial de API se exponga en el repositorio.
 4. **CORS:** El backend restringe el acceso de orígenes cruzados permitiendo únicamente peticiones provenientes de la URL del frontend desplegado en **Vercel** (configurado a través de `FRONTEND_URL`) y del entorno de desarrollo local.
 
-## Known issues
+## Seed Data (Datos de Demostración)
 
-_(agregar acá cualquier decisión técnica relevante, como la de mantener versiones de dependencias por temas de compatibilidad)_
+Para poblar la base de datos con usuarios, saldos y transacciones de prueba para la demo:
+
+```bash
+npx tsx src/database/seed.ts
+```
+
+Esto crea 3 usuarios demo (`demo.juan@valora.com`, `demo.maria@valora.com`, `demo.carlos@valora.com`) con:
+- Saldos pre-cargados: $5,000 USD, $150,000 ARS y €1,000 EUR cada uno.
+- Historial de transacciones variado (depósito, compra de divisas, intercambio).
+
+El script es idempotente (seguro de re-ejecutar) y corre dentro de una transacción ACID.
+
+## Documentación Completa de Endpoints
+
+La guía paso a paso para probar todos los endpoints con Insomnia o cualquier cliente HTTP se encuentra en [`docs/Endpoints.txt`](docs/Endpoints.txt).
 
 ## Equipo
 
-- Santiago Chavez — Backend Core (modelo de datos, autenticación, despliegue, testing)
-- Daniel Sardinas — Lógica de negocio + IA (compra/venta/intercambio, tasas de cambio, chatbot Gemini)
-- Gerardo Acosta — Frontend Lead (colaborador en este repo)
-- Analía Pérez Juliá — Integración AWS SES, documentación, coordinación y tareas de Frontend.
-
-
-# Guia de Endpoints para Insomnia
-
-Esta es la guia paso a paso para probar tu backend localmente utilizando **Insomnia**.
-
-> ⚠️ **IMPORTANTE: Configuracion de Base de Datos**
-> Antes de empezar, asegurate de que tu archivo `.env` contenga la siguiente variable al final. Esto soluciona el error `self-signed certificate` con la base de datos de Railway:
-> ```env
-> DB_SSL_REJECT_UNAUTHORIZED=false
-> ```
-> *Si acabas de agregar esto, no olvides reiniciar tu servidor (`npm run dev`) antes de probar en Insomnia.*
-
----
-
-## 1. Autenticacion (`/auth`)
-
-### 1.1 Registrar un Usuario
-*   **Metodo:** `POST`
-*   **URL:** `http://localhost:3000/auth/register`
-*   **Descripcion:** Crea una cuenta nueva de usuario. Empezaremos creando a un usuario llamado "Carlos".
-*   **Como probarlo en Insomnia:**
-    1. Crea un nuevo Request. Selecciona `POST` y pega la URL.
-    2. Ve a la pestana **Body**, selecciona **JSON**.
-    3. Pega este contenido:
-    ```json
-    {
-      "email": "carlos.prueba@email.com",
-      "password": "PasswordSeguro123!",
-      "firstName": "Carlos",
-      "lastName": "Lopez",
-      "dateOfBirth": "10/10/1995",
-      "phone": "+525512345678"
-    }
-    ```
-    4. Haz clic en **Send**. Deberias recibir una respuesta indicando que el registro fue exitoso.
-
-### 1.2 Iniciar Sesion (Obtener el Token)
-*   **Metodo:** `POST`
-*   **URL:** `http://localhost:3000/auth/login`
-*   **Descripcion:** Inicia sesion con el usuario recien creado para obtener el Token de Autorizacion.
-*   **Como probarlo en Insomnia:**
-    1. Crea un nuevo Request `POST` con la URL.
-    2. En **Body** -> **JSON**, ingresa las credenciales:
-    ```json
-    {
-      "email": "carlos.prueba@email.com",
-      "password": "PasswordSeguro123!"
-    }
-    ```
-    3. Haz clic en **Send**.
-    4. **COPIA EL TOKEN:** En la respuesta veras un campo `token` (un texto largo que empieza con "ey..."). Copia ese texto. Lo vas a necesitar para los siguientes endpoints.
-
-### 1.3 Obtener Mi Perfil 🔒
-*   **Metodo:** `GET`
-*   **URL:** `http://localhost:3000/auth/me`
-*   **Descripcion:** Devuelve los datos del perfil de Carlos. Requiere autenticacion.
-*   **Como probarlo en Insomnia:**
-    1. Crea un nuevo Request `GET` con la URL.
-    2. Ve a la pestana **Auth** y selecciona **Bearer Token**.
-    3. En el campo **Token**, pega el texto que copiaste en el paso anterior.
-    4. Haz clic en **Send**. *(No requiere Body)*.
-
----
-
-## 2. Transacciones (`/transactions`)
-
-### 2.1 Realizar un Deposito 🔒
-*   **Metodo:** `POST`
-*   **URL:** `http://localhost:3000/transactions/deposit`
-*   **Descripcion:** Ingresa dinero en la billetera de Carlos. En este ejemplo, vamos a depositar 500 Dolares (USD).
-*   **Como probarlo en Insomnia:**
-    1. Crea un nuevo Request `POST` con la URL.
-    2. En la pestana **Auth**, selecciona **Bearer Token** y pega el token.
-    3. En **Body** -> **JSON**, pega lo siguiente:
-    ```json
-    {
-      "currency": "USD",
-      "amount": 500
-    }
-    ```
-    4. Haz clic en **Send**.
-
-### 2.2 Realizar un Exchange (Cambio de Moneda) 🔒
-*   **Metodo:** `POST`
-*   **URL:** `http://localhost:3000/transactions/exchange`
-*   **Descripcion:** Cambia una parte del dinero depositado a otra moneda. Aqui cambiaremos 100 USD a ARS (Pesos Argentinos).
-*   **Como probarlo en Insomnia:**
-    1. Crea un nuevo Request `POST` con la URL.
-    2. En la pestana **Auth**, selecciona **Bearer Token** y pega el token.
-    3. En **Body** -> **JSON**, pega lo siguiente:
-    ```json
-    {
-      "fromCurrency": "USD",
-      "toCurrency": "ARS",
-      "amount": 100
-    }
-    ```
-    4. Haz clic en **Send**.
-
----
-
-## 3. Saldos (`/balances`)
-
-### 3.1 Ver Saldos Actuales 🔒
-*   **Metodo:** `GET`
-*   **URL:** `http://localhost:3000/balances`
-*   **Descripcion:** Muestra los saldos que tiene Carlos. Deberias ver los USD restantes (400) y los ARS que obtuvo del exchange.
-*   **Como probarlo en Insomnia:**
-    1. Crea un nuevo Request `GET` con la URL.
-    2. En la pestana **Auth**, selecciona **Bearer Token** y pega el token.
-    3. Haz clic en **Send**. *(No requiere Body)*.
-
----
-
-## 4. Estado de Salud (`/health`)
-
-### 4.1 Comprobar el Servidor
-*   **Metodo:** `GET`
-*   **URL:** `http://localhost:3000/health`
-*   **Descripcion:** Sirve simplemente para confirmar que el servidor backend esta encendido y funcionando.
-*   **Como probarlo en Insomnia:**
-    1. Crea un nuevo Request `GET` con la URL.
-    2. Haz clic en **Send**. *(No requiere Auth ni Body)*.
-    3. Recibiras una respuesta indicando `{"status": "ok"}`.
-
-## 5. Asistente Financiero (Chatbot)
-
-### 5.1 Enviar Mensaje a la IA
-*   **Metodo:** `POST`
-*   **URL:** `http://localhost:3000/chatbot/message`
-*   **Descripcion:** Envía una consulta de texto al asistente financiero. El servidor inyectará automáticamente los saldos del usuario para generar respuestas contextuales. Requiere autenticación.
-*   **Como probarlo en Insomnia:**
-    1. Crea un nuevo Request `POST` con la URL.
-    2. En la pestana **Auth**, selecciona **Bearer Token** y pega el token.
-    3. En **Body** -> **JSON**, pega lo siguiente:
-    ```json
-    {
-      "message": "¿Me alcanza el saldo para comprar un café de 5 euros?"
-    }
-    ```
-    4. Haz clic en **Send**.
-    5. **Respuesta Exitosa (200 OK):**
-    ```json
-    {
-      "success": true,
-      "data": {
-        "reply": "Si tienes saldo suficiente. Actualmente cuentas con 55 EUR en tu billetera."
-      }
-    }
-    ```
+- **Santiago Chavez** — Backend Core (modelo de datos, autenticación, seguridad, despliegue, testing, seed data)
+- **Daniel Sardinas** — Lógica de negocio + IA (compra/venta/intercambio, tasas de cambio, chatbot Gemini, transferencias P2P)
+- **Gerardo Acosta** — Frontend Lead
+- **Analía Pérez Juliá** — Integración AWS SES, Google OAuth, validaciones multi-país, documentación, CORS dinámico
